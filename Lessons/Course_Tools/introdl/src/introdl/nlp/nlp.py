@@ -4,22 +4,9 @@ import torch
 from openai import OpenAI
 from transformers import AutoModelForCausalLM, AutoTokenizer
 import re
-import ipywidgets as widgets
-import pyperclip
-from IPython.display import display, clear_output, Markdown
-from accelerate import cpu_offload
-import contextlib
 
 from transformers.utils import logging
 logging.set_verbosity_error()
-
-# Suppress logging warnings from PyTorch and Transformers
-import logging
-logging.getLogger("transformers.models.mistral.modeling_mistral").setLevel(logging.ERROR)
-logging.getLogger("torch").setLevel(logging.ERROR)
-
-# Disable CUDA memory caching warning
-os.environ["PYTORCH_NO_CUDA_MEMORY_CACHING"] = "1"
 
 import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
@@ -78,18 +65,16 @@ def release_model():
         print(f"🛑 Unloading model: {model_str} from GPU...")
         model = LOADED_MODELS[model_str]
         try:
-            # If the model was loaded with accelerate, use safe offloading
-            if hasattr(model, "hf_device_map"):
-                #print("⚡ Using `accelerate.cpu_offload()` for safe unloading.")
-                cpu_offload(model)
-            else:
-                print("⬇️ Moving model to CPU manually...")
-                with warnings.catch_warnings():
-                    warnings.filterwarnings("ignore", message="You shouldn't move a model that is dispatched using accelerate hooks")
-                    model.to("cpu")
-
-        except Exception as e:
-            print(f"⚠️ Error moving model to CPU: {e}")
+            # Suppress warnings about moving a model dispatched using accelerate hooks.
+            with warnings.catch_warnings():
+                warnings.filterwarnings(
+                    "ignore",
+                    message="You shouldn't move a model that is dispatched using accelerate hooks"
+                )
+                model.to("cpu")
+        except Exception:
+            # If any other error occurs, just pass.
+            pass
         del LOADED_MODELS[model_str]
         del LOADED_TOKENIZERS[model_str]
         torch.cuda.empty_cache()
@@ -289,7 +274,6 @@ def llm_prompt(model_config, prompts, max_new_tokens=200, temperature=0.7,
     return responses if is_batch else responses[0]
 '''
 
-'''
 def llm_generate(model_config, prompts, max_new_tokens=200, temperature=0.7, 
                search_strategy="top_p", top_k=50, top_p=0.9, num_beams=1,
                estimate_cost=False, system_prompt="You are an AI assistant that provides brief answers."):
@@ -378,201 +362,6 @@ def llm_generate(model_config, prompts, max_new_tokens=200, temperature=0.7,
     responses = [clean_response(resp, prompt) for resp, prompt in zip(responses, prompts if is_batch else [prompts])]
     return responses if is_batch else responses[0]
 
-
-def llm_generate(model_config, prompts, max_new_tokens=200, temperature=0.7, 
-                 search_strategy="top_p", top_k=50, top_p=0.9, num_beams=1,
-                 estimate_cost=False, system_prompt="You are an AI assistant that provides brief answers."):
-    """
-    Generates a response from an LLM using a provided ModelConfig object.
-    
-    Parameters:
-      - model_config: A preconfigured ModelConfig instance.
-      - prompts: A single prompt (str) or a list of prompt strings.
-      - max_new_tokens, temperature, search_strategy, top_k, top_p, num_beams: Generation parameters.
-      - estimate_cost: If True and the cost parameters are set in ModelConfig, prints an estimated cost.
-      - system_prompt: The system prompt to include in API-based chat calls.
-    
-    Returns:
-      The generated response(s) as a string or a list of strings.
-    """
-    if model_config is None:
-        return "❌ Error: Invalid model configuration. Please check the model name."
-    
-    is_batch = isinstance(prompts, list)
-    responses = []
-    num_input_tokens = 0.0
-    num_output_tokens = 0.0
-
-    # Suppress stderr output during execution
-    with warnings.catch_warnings(), contextlib.redirect_stderr(None):
-        warnings.simplefilter("ignore", category=UserWarning)
-
-        # --- API-based models (OpenAI, Gemini) ---
-        if model_config.api_type in ["openai", "gemini"]:
-            try:
-                messages = [{"role": "system", "content": system_prompt}]
-                for prompt in ([prompts] if not is_batch else prompts):
-                    user_message = {"role": "user", "content": prompt}
-                    full_messages = messages + [user_message]
-                    response = model_config.client.chat.completions.create(
-                        model=model_config.model_str,
-                        messages=full_messages,
-                        temperature=temperature,
-                        max_tokens=max_new_tokens
-                    )
-                    response_text = response.choices[0].message.content.strip()
-                    responses.append(clean_response(response_text, prompt))
-                    if estimate_cost and model_config.cost_per_M_input is not None and model_config.cost_per_M_output is not None:
-                        num_input_tokens += response.usage.prompt_tokens
-                        num_output_tokens += response.usage.completion_tokens
-
-                if estimate_cost:
-                    total_cost = ((num_input_tokens / 1_000_000) * model_config.cost_per_M_input) + \
-                                 ((num_output_tokens / 1_000_000) * model_config.cost_per_M_output)
-                    print(f"💰 Estimated Cost: ${total_cost:.6f} (Input: {num_input_tokens} tokens, Output: {num_output_tokens} tokens)")
-                return responses if is_batch else responses[0]
-            except Exception as e:
-                return f"{model_config.api_type.capitalize()} API error: {str(e)}"
-
-        # --- Local Hugging Face model generation ---
-        tokenizer = model_config.tokenizer
-        model = model_config.model
-
-        if model is None or tokenizer is None:
-            return "❌ Error: Model or tokenizer is not properly initialized."
-        
-        # Check if a chat template is available; if not, fallback to normal tokenization.
-        if hasattr(tokenizer, "apply_chat_template") and getattr(tokenizer, "chat_template", None) is not None:
-            conversations = [[{"role": "system", "content": system_prompt}, {"role": "user", "content": p}]
-                            for p in (prompts if is_batch else [prompts])]
-            input_ids = tokenizer.apply_chat_template(conversations, return_tensors="pt", padding=True, truncation=True).to(model.device)
-        else:
-            input_ids = tokenizer(prompts if is_batch else [prompts], return_tensors="pt", padding=True, truncation=True).to(model.device)
-        
-        terminators = [tokenizer.eos_token_id, tokenizer.convert_tokens_to_ids("<|eot_id|>")]
-        gen_kwargs = {
-            "max_new_tokens": max_new_tokens,
-            "eos_token_id": terminators,
-            "repetition_penalty": 1.2,
-            "num_beams": num_beams,
-            "do_sample": temperature > 0,
-            "temperature": temperature,
-        }
-        if search_strategy == "top_k":
-            gen_kwargs.update({"do_sample": True, "top_k": top_k, "temperature": temperature})
-        elif search_strategy == "top_p":
-            gen_kwargs.update({"do_sample": True, "top_p": top_p, "temperature": temperature})
-        elif search_strategy == "contrastive":
-            gen_kwargs.update({"do_sample": True, "penalty_alpha": 0.6, "top_k": 4, "temperature": temperature})
-
-        with torch.no_grad():
-            output = model.generate(input_ids, **gen_kwargs)
-        responses = tokenizer.batch_decode(output, skip_special_tokens=True)
-        responses = [clean_response(resp, prompt) for resp, prompt in zip(responses, prompts if is_batch else [prompts])]
-
-    return responses if is_batch else responses[0]
-'''
-
-def llm_generate(model_config, prompts, max_new_tokens=200, temperature=0.7, 
-                 search_strategy="top_p", top_k=50, top_p=0.9, num_beams=1,
-                 estimate_cost=False, system_prompt="You are an AI assistant that provides brief answers."):
-    """
-    Generates a response from an LLM using a provided ModelConfig object.
-    
-    Parameters:
-      - model_config: A preconfigured ModelConfig instance.
-      - prompts: A single prompt (str) or a list of prompt strings.
-      - max_new_tokens, temperature, search_strategy, top_k, top_p, num_beams: Generation parameters.
-      - estimate_cost: If True and the cost parameters are set in ModelConfig, prints an estimated cost.
-      - system_prompt: The system prompt to include in API-based chat calls.
-    
-    Returns:
-      The cleaned response(s) as a string or a list of strings.
-    """
-    if model_config is None:
-        return "❌ Error: Invalid model configuration. Please check the model name."
-    
-    is_batch = isinstance(prompts, list)
-    responses = []
-    num_input_tokens = 0.0
-    num_output_tokens = 0.0
-
-    # Suppress stderr output during execution
-    with warnings.catch_warnings(), contextlib.redirect_stderr(None):
-        warnings.simplefilter("ignore", category=UserWarning)
-
-        # --- API-based models (OpenAI, Gemini) ---
-        if model_config.api_type in ["openai", "gemini"]:
-            try:
-                messages = [{"role": "system", "content": system_prompt}]
-                for prompt in ([prompts] if not is_batch else prompts):
-                    user_message = {"role": "user", "content": prompt}
-                    full_messages = messages + [user_message]
-                    response = model_config.client.chat.completions.create(
-                        model=model_config.model_str,
-                        messages=full_messages,
-                        temperature=temperature,
-                        max_tokens=max_new_tokens
-                    )
-                    response_text = response.choices[0].message.content.strip()
-                    responses.append(clean_response(response_text, prompt))  # Apply `clean_response`
-                    
-                    if estimate_cost and model_config.cost_per_M_input is not None and model_config.cost_per_M_output is not None:
-                        num_input_tokens += response.usage.prompt_tokens
-                        num_output_tokens += response.usage.completion_tokens
-
-                if estimate_cost:
-                    total_cost = ((num_input_tokens / 1_000_000) * model_config.cost_per_M_input) + \
-                                 ((num_output_tokens / 1_000_000) * model_config.cost_per_M_output)
-                    print(f"💰 Estimated Cost: ${total_cost:.6f} (Input: {num_input_tokens} tokens, Output: {num_output_tokens} tokens)")
-
-                return responses if is_batch else responses[0]
-            
-            except Exception as e:
-                return f"{model_config.api_type.capitalize()} API error: {str(e)}"
-
-        # --- Local Hugging Face model generation ---
-        tokenizer = model_config.tokenizer
-        model = model_config.model
-
-        if model is None or tokenizer is None:
-            return "❌ Error: Model or tokenizer is not properly initialized."
-        
-        # Check if a chat template is available; if not, fallback to normal tokenization.
-        if hasattr(tokenizer, "apply_chat_template") and getattr(tokenizer, "chat_template", None) is not None:
-            conversations = [[{"role": "system", "content": system_prompt}, {"role": "user", "content": p}]
-                            for p in (prompts if is_batch else [prompts])]
-            input_ids = tokenizer.apply_chat_template(conversations, return_tensors="pt", padding=True, truncation=True).to(model.device)
-        else:
-            input_ids = tokenizer(prompts if is_batch else [prompts], return_tensors="pt", padding=True, truncation=True).to(model.device)
-        
-        terminators = [tokenizer.eos_token_id, tokenizer.convert_tokens_to_ids("<|eot_id|>")]
-        gen_kwargs = {
-            "max_new_tokens": max_new_tokens,
-            "eos_token_id": terminators,
-            "repetition_penalty": 1.2,
-            "num_beams": num_beams,
-            "do_sample": temperature > 0,
-            "temperature": temperature,
-        }
-        if search_strategy == "top_k":
-            gen_kwargs.update({"do_sample": True, "top_k": top_k, "temperature": temperature})
-        elif search_strategy == "top_p":
-            gen_kwargs.update({"do_sample": True, "top_p": top_p, "temperature": temperature})
-        elif search_strategy == "contrastive":
-            gen_kwargs.update({"do_sample": True, "penalty_alpha": 0.6, "top_k": 4, "temperature": temperature})
-
-        with torch.no_grad():
-            output = model.generate(input_ids, **gen_kwargs)
-        responses = tokenizer.batch_decode(output, skip_special_tokens=True)
-
-        # Apply `clean_response` to each response in batch mode
-        responses = [clean_response(resp, prompt) for resp, prompt in zip(responses, prompts if is_batch else [prompts])]
-
-    return responses if is_batch else responses[0]
-
-
-
 def clear_pipeline(pipe):
 
     if next(pipe.model.parameters()).is_cuda:
@@ -593,114 +382,3 @@ def print_pipeline_info(pipe):
     model = pipe.model
     model_size = sum(p.numel() for p in model.parameters())
     print(f"Model: {model.name_or_path}, Size: {model_size:,} parameters")
-
-
-def display_markdown(response):
-    """
-    Displays the given text response using Markdown formatting.
-
-    Parameters:
-    - response (str): The text response to format as Markdown.
-    """
-    if not response or not isinstance(response, str):
-        display(Markdown("⚠️ *No valid response to display.*"))
-        return
-    display(Markdown(response))
-
-
-class JupyterChat:
-    def __init__(self, model_str, system_prompt="You are a helpful assistant."):
-        """
-        Initializes a Jupyter-based chat interface using llm_configure and llm_generate.
-
-        Parameters:
-        - model_str (str): The model to load (can be a local or API-based model).
-        - system_prompt (str): The system message that sets the behavior of the assistant.
-        """
-        self.model_config = llm_configure(model_str)
-        if not self.model_config:
-            raise ValueError(f"Could not load model: {model_str}")
-        
-        self.system_prompt = system_prompt
-        self.chat_history = []
-        
-        # Initialize UI elements
-        self.text_input = widgets.Text(
-            placeholder="Type your message here...",
-            description="User:",
-            layout=widgets.Layout(width="100%")
-        )
-        self.send_button = widgets.Button(description="Send", button_style='primary')
-        self.clear_button = widgets.Button(description="Clear Chat", button_style='warning')
-        self.copy_button = widgets.Button(description="Copy", button_style='success')
-        self.output_area = widgets.Output()
-
-        # Event handlers
-        self.send_button.on_click(self.handle_input)
-        self.text_input.on_submit(self.handle_input)
-        self.clear_button.on_click(self.clear_chat)
-        self.copy_button.on_click(self.copy_chat)
-
-        # Layout the buttons
-        button_box = widgets.HBox([self.send_button, self.clear_button, self.copy_button])
-
-        # Display chat UI
-        display(self.text_input, button_box, self.output_area)
-
-    def handle_input(self, event):
-        """Handles user input and updates the chat history."""
-        user_input = self.text_input.value.strip()
-        if not user_input:
-            return
-        
-        self.text_input.value = ""  # Clear input field
-        self.chat_history.append({"role": "user", "content": user_input})
-
-        response = self.generate_response(user_input)
-        self.chat_history.append({"role": "assistant", "content": response})
-        
-        self.update_display()  # Refresh output display
-
-    def generate_response(self, user_input):
-        """Generates a response using llm_generate."""
-        try:
-            response = llm_generate(self.model_config, prompts=user_input, system_prompt=self.system_prompt)
-            return response
-        except Exception as e:
-            return self.format_api_error(e)
-
-    def update_display(self):
-        """Updates the chat output to prevent duplicate messages and ensure correct Markdown rendering."""
-        with self.output_area:
-            clear_output()
-            for entry in self.chat_history:
-                role = "**User:**" if entry["role"] == "user" else "**Assistant:**"
-                message = f"{role}\n\n{entry['content']}"
-                display_markdown(message)
-
-    def clear_chat(self, event):
-        """Clears the chat history and output display."""
-        self.chat_history = []
-        with self.output_area:
-            clear_output()
-        print("Chat history cleared.")
-
-    def copy_chat(self, event):
-        """Copies the raw chat history (unformatted) to the clipboard."""
-        chat_text = "\n".join([f"{entry['role'].capitalize()}: {entry['content']}" for entry in self.chat_history])
-        pyperclip.copy(chat_text)
-        print("✅ Chat copied to clipboard!")
-
-    def format_api_error(self, error):
-        """Formats API error messages for better readability."""
-        error_str = str(error)
-        if "429" in error_str:
-            return "⚠️ *API limit reached. Please check your quota.*"
-        elif "401" in error_str:
-            return "⚠️ *Invalid API key. Please verify your credentials.*"
-        elif "RESOURCE_EXHAUSTED" in error_str:
-            return "⚠️ *Quota exceeded. Try again later.*"
-        return f"⚠️ *API Error:* {error_str}"
-
-# Example usage:
-# chat = JupyterChat("gemini-2.0-flash")
