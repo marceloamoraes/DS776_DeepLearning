@@ -37,37 +37,36 @@ SHORT_NAME_MAP = {
     "mistral-7B": "unsloth/mistral-7b-instruct-v0.3-bnb-4bit",
     "llama-3p2-3B": "unsloth/Llama-3.2-3B-Instruct-unsloth-bnb-4bit",
     "gemini-flash-lite": "gemini-2.0-flash-lite-preview-02-05",
-    "gemini-flash": "gemini-2.0-flash"
+    "gemini-flash": "gemini-2.0-flash",
+    "gpt-4o": "gpt-4o",
+    "gpt-4o-mini": "gpt-4o-mini",
+    "o1-mini": "o1-mini",
+    "o3-mini": "o3-mini",
 }
 
 # Lists of API-based models.
 OPENAI_MODELS = ["gpt-4o", "gpt-4o-mini", "o1-mini", "o3-mini"]
 GEMINI_MODELS = ["gemini-2.0-flash-lite-preview-02-05", "gemini-2.0-flash"]
 
-def llm_list_models():
+def llm_list_models(verbose=False):
     """
     Lists all available models grouped by category:
     - Short Name Models (Hugging Face & Gemini)
     - OpenAI Models
     - Gemini Models
     """
-    models = {
-        "Short Name Models": {k: v for k, v in SHORT_NAME_MAP.items()},
-        "OpenAI Models": OPENAI_MODELS,
-        "Gemini Models": GEMINI_MODELS
-    }
-    print("Available models:")
-    for category, model_list in models.items():
-        print(f"{category}:")
-        if isinstance(model_list, dict):
-            for short, full in model_list.items():
-                print(f"  {short} => {full}")
-        else:
-            for model in model_list:
-                print(f"  {model}")
-    print("")  # Blank line after the list
-    print("To use an OPENAI or GEMINI model, set the appropriate environment variable:")
-    print("OPENAI_API_KEY or GEMINI_API_KEY")
+
+    if verbose:
+        print("Available models:")
+        for short_name in SHORT_NAME_MAP.keys():
+            if short_name in OPENAI_MODELS:
+                print(f" {short_name} => needs OPENAI_API_KEY")
+            elif short_name.startswith('gemini'):
+                print(f" {short_name} => needs GEMINI_API_KEY")
+            else:
+                print(f" {short_name} => HuggingFace: {SHORT_NAME_MAP[short_name]}")
+
+    models = zip(range(len(SHORT_NAME_MAP)), SHORT_NAME_MAP.keys())
     return models
 
 def release_model():
@@ -200,6 +199,7 @@ def clean_response(response, prompt=None):
     response = "\n".join([line for line in response.split("\n") if line.strip()])
     return response
 
+'''
 def llm_generate(model_config, prompts, max_new_tokens=200, temperature=0.7, 
                  search_strategy="top_p", top_k=50, top_p=None, num_beams=1,
                  estimate_cost=False, system_prompt="You are an AI assistant that provides brief answers."):
@@ -342,6 +342,354 @@ def llm_generate(model_config, prompts, max_new_tokens=200, temperature=0.7,
         responses = [clean_response(resp, prompt) for resp, prompt in zip(responses, prompts if is_batch else [prompts])]
 
     return responses if is_batch else responses[0]
+
+def llm_generate(model_config, prompts, max_new_tokens=200, temperature=0.7, 
+                 batch_size=1,
+                 search_strategy="top_p", top_k=50, top_p=None, num_beams=1,
+                 estimate_cost=False, system_prompt="You are an AI assistant that provides brief answers."):
+    """
+    Generates responses from a language model using a specified search strategy.
+    
+    Parameters:
+      - model_config (ModelConfig): A preconfigured instance containing the model and tokenizer.
+      - prompts (str or list of str): A single prompt or a batch of prompts for response generation.
+      - max_new_tokens (int, optional): The maximum number of new tokens to generate. Default is 200.
+      - temperature (float, optional): Controls randomness in generation. Higher values make responses more diverse, lower values make them more deterministic. Default is 0.7.
+      - batch_size (int, optional): The number of prompts to process per batch when using local models. Default is 1.
+      - search_strategy (str, optional): The decoding strategy to use. Options:
+        - `"top_p"`: Uses nucleus sampling (top-p filtering). **Supported by both OpenAI API and Hugging Face models.**
+        - `"deterministic"`: Disables sampling (`temperature=0.0`) and sets `top_p=1.0` for fully deterministic outputs. **Supported by both OpenAI API and Hugging Face models.**
+        - `"top_k"`: Samples from the top `k` most likely tokens. **Ignored by OpenAI API models.**
+        - `"beam_search"`: Uses beam search with `num_beams > 1`. **Ignored by OpenAI API models.**
+        - `"contrastive"`: Uses contrastive search with a fixed `top_k=4` and `penalty_alpha=0.6`. **Ignored by OpenAI API models.**
+      - top_k (int, optional): The number of top tokens to sample from when `search_strategy="top_k"`. Ignored for OpenAI API.
+      - top_p (float, optional): The cumulative probability threshold for nucleus sampling (`search_strategy="top_p"`). If `None`, uses model-specific defaults.
+      - num_beams (int, optional): The number of beams for beam search (`search_strategy="beam_search"`). Ignored for OpenAI API.
+      - estimate_cost (bool, optional): If `True` and cost parameters are available in `model_config`, prints an estimated token cost. Default is `False`.
+      - system_prompt (str, optional): A system-level instruction prompt used when interacting with API-based models. Default is a generic assistant prompt.
+
+    Returns:
+      - str or list of str: The generated response(s), either as a single string (for a single prompt) or a list of strings (for batch processing).
+
+    Notes:
+      - **OpenAI API models only support `top_p` and `deterministic` strategies.**
+      - **The following strategies are ignored by OpenAI API models: `top_k`, `beam_search`, and `contrastive`.**
+      - `"deterministic"` strategy enforces `temperature=0.0` and `top_p=1.0` to ensure reproducible outputs.
+      - If `top_p` is not explicitly provided, OpenAI models will use their default nucleus sampling setting.
+      - API-based models (e.g., OpenAI, Gemini) may have internal optimizations that override some generation parameters.
+      - If `model_config` is improperly configured, an error message is returned.
+
+    Example Usage:
+      >>> response = llm_generate(model_config, "What is artificial intelligence?", search_strategy="deterministic")
+      >>> print(response)
+      "Artificial intelligence (AI) is the simulation of human intelligence in machines."
+    """
+
+    if model_config is None:
+        return "❌ Error: Invalid model configuration. Please check the model name."
+    
+    is_batch = isinstance(prompts, list)
+    responses = []
+    num_input_tokens = 0.0
+    num_output_tokens = 0.0
+
+    with warnings.catch_warnings(), contextlib.redirect_stderr(None):
+        warnings.simplefilter("ignore", category=UserWarning)
+
+        # --- API-based models (OpenAI, Gemini) ---
+        if model_config.api_type in ["openai", "gemini"]:
+            try:
+                messages = [{"role": "system", "content": system_prompt}]
+                for prompt in ([prompts] if not is_batch else prompts):
+                    user_message = {"role": "user", "content": prompt}
+                    full_messages = messages + [user_message]
+
+                    # Handle OpenAI-specific decoding strategies
+                    openai_params = {
+                        "model": model_config.model_str,
+                        "messages": full_messages,
+                        "max_tokens": max_new_tokens
+                    }
+
+                    if search_strategy == "deterministic":
+                        openai_params["temperature"] = 0.0  # Fully deterministic
+                        openai_params["top_p"] = 1.0
+                    else:  # Default behavior (uses top_p if provided)
+                        openai_params["temperature"] = temperature
+                        if top_p is not None:  # Use user-specified `top_p`
+                            openai_params["top_p"] = top_p  # Default to OpenAI's default otherwise
+
+                    response = model_config.client.chat.completions.create(**openai_params)
+                    response_text = response.choices[0].message.content.strip()
+                    responses.append(clean_response(response_text, prompt))  # Apply `clean_response`
+                    
+                    if estimate_cost and model_config.cost_per_M_input is not None and model_config.cost_per_M_output is not None:
+                        num_input_tokens += response.usage.prompt_tokens
+                        num_output_tokens += response.usage.completion_tokens
+
+                if estimate_cost:
+                    total_cost = ((num_input_tokens / 1_000_000) * model_config.cost_per_M_input) + \
+                                 ((num_output_tokens / 1_000_000) * model_config.cost_per_M_output)
+                    print(f"💰 Estimated Cost: ${total_cost:.6f} (Input: {num_input_tokens} tokens, Output: {num_output_tokens} tokens)")
+
+                return responses if is_batch else responses[0]
+            
+            except Exception as e:
+                return f"{model_config.api_type.capitalize()} API error: {str(e)}"
+
+        # --- Local Hugging Face model generation ---
+        tokenizer = model_config.tokenizer
+        model = model_config.model
+
+        if model is None or tokenizer is None:
+            return "❌ Error: Model or tokenizer is not properly initialized."
+        
+        # For local models, if multiple prompts are provided and batch_size > 1,
+        # process prompts in batches to avoid memory issues.
+        if is_batch and len(prompts) > batch_size:
+            all_responses = []
+            # Process each batch
+            for i in range(0, len(prompts), batch_size):
+                batch_prompts = prompts[i:i+batch_size]
+                # Check if a chat template is available; if not, fallback to normal tokenization.
+                if hasattr(tokenizer, "apply_chat_template") and getattr(tokenizer, "chat_template", None) is not None:
+                    conversations = [[{"role": "system", "content": system_prompt}, {"role": "user", "content": p}]
+                                    for p in batch_prompts]
+                    input_ids = tokenizer.apply_chat_template(conversations, return_tensors="pt", padding=True, truncation=True).to(model.device)
+                else:
+                    input_ids = tokenizer(batch_prompts, return_tensors="pt", padding=True, truncation=True).to(model.device)
+                
+                terminators = [tokenizer.eos_token_id, tokenizer.convert_tokens_to_ids("<|eot_id|>")]
+
+                # Default generation parameters
+                gen_kwargs = {
+                    "max_new_tokens": max_new_tokens,
+                    "eos_token_id": terminators,
+                    "repetition_penalty": 1.2,
+                    "num_beams": num_beams if search_strategy == "beam_search" else 1,  # Only use beams for beam search
+                    "do_sample": temperature > 0,  # Sampling enabled if temperature > 0
+                    "temperature": temperature,
+                }
+
+                # Handle different search strategies for Hugging Face models
+                if search_strategy == "top_k":
+                    gen_kwargs.update({"do_sample": True, "top_k": top_k, "temperature": temperature})
+                elif search_strategy == "top_p":
+                    gen_kwargs.update({"do_sample": True, "top_p": top_p if top_p is not None else 0.9, "temperature": temperature})  # Default top_p = 0.9
+                elif search_strategy == "contrastive":
+                    gen_kwargs.update({"do_sample": True, "penalty_alpha": 0.6, "top_k": 4, "temperature": temperature})
+                elif search_strategy == "deterministic":
+                    gen_kwargs.update({
+                        "do_sample": False,  # Disable sampling for determinism
+                        "temperature": 0.0,  # Ensure no randomness
+                        "num_beams": 1,  # Disable beam search for fastest deterministic result
+                    })
+
+                with torch.no_grad():
+                    output = model.generate(input_ids, **gen_kwargs)
+                
+                batch_responses = tokenizer.batch_decode(output, skip_special_tokens=True)
+                # Apply `clean_response` to each response in batch mode
+                batch_responses = [clean_response(resp, prompt) for resp, prompt in zip(batch_responses, batch_prompts)]
+                all_responses.extend(batch_responses)
+            responses = all_responses
+        else:
+            # Process all prompts (or single prompt) in one go.
+            if hasattr(tokenizer, "apply_chat_template") and getattr(tokenizer, "chat_template", None) is not None:
+                conversations = [[{"role": "system", "content": system_prompt}, {"role": "user", "content": p}]
+                                for p in (prompts if is_batch else [prompts])]
+                input_ids = tokenizer.apply_chat_template(conversations, return_tensors="pt", padding=True, truncation=True).to(model.device)
+            else:
+                input_ids = tokenizer(prompts if is_batch else [prompts], return_tensors="pt", padding=True, truncation=True).to(model.device)
+            
+            terminators = [tokenizer.eos_token_id, tokenizer.convert_tokens_to_ids("<|eot_id|>")]
+
+            # Default generation parameters
+            gen_kwargs = {
+                "max_new_tokens": max_new_tokens,
+                "eos_token_id": terminators,
+                "repetition_penalty": 1.2,
+                "num_beams": num_beams if search_strategy == "beam_search" else 1,  # Only use beams for beam search
+                "do_sample": temperature > 0,  # Sampling enabled if temperature > 0
+                "temperature": temperature,
+            }
+
+            # Handle different search strategies for Hugging Face models
+            if search_strategy == "top_k":
+                gen_kwargs.update({"do_sample": True, "top_k": top_k, "temperature": temperature})
+            elif search_strategy == "top_p":
+                gen_kwargs.update({"do_sample": True, "top_p": top_p if top_p is not None else 0.9, "temperature": temperature})  # Default top_p = 0.9
+            elif search_strategy == "contrastive":
+                gen_kwargs.update({"do_sample": True, "penalty_alpha": 0.6, "top_k": 4, "temperature": temperature})
+            elif search_strategy == "deterministic":
+                gen_kwargs.update({
+                    "do_sample": False,  # Disable sampling for determinism
+                    "temperature": 0.0,  # Ensure no randomness
+                    "num_beams": 1,  # Disable beam search for fastest deterministic result
+                })
+
+            with torch.no_grad():
+                output = model.generate(input_ids, **gen_kwargs)
+            
+            responses = tokenizer.batch_decode(output, skip_special_tokens=True)
+            # Apply `clean_response` to each response in batch mode
+            responses = [clean_response(resp, prompt) for resp, prompt in zip(responses, prompts if is_batch else [prompts])]
+
+    return responses if is_batch else responses[0]
+'''
+
+def llm_generate(model_config, prompts, max_new_tokens=200, temperature=0.7, 
+                 batch_size=1,
+                 search_strategy="top_p", top_k=50, top_p=None, num_beams=1,
+                 estimate_cost=False, system_prompt="You are an AI assistant that provides brief answers."):
+    """
+    Generates responses from a language model using a specified search strategy.
+    
+    Parameters:
+      - model_config (ModelConfig): A preconfigured instance containing the model and tokenizer.
+      - prompts (str or list of str): A single prompt or a batch of prompts for response generation.
+      - max_new_tokens (int, optional): The maximum number of new tokens to generate. Default is 200.
+      - temperature (float, optional): Controls randomness in generation. Higher values make responses more diverse, lower values make them more deterministic. Default is 0.7.
+      - batch_size (int, optional): The number of prompts to process per batch when using local models. Default is 1.
+      - search_strategy (str, optional): The decoding strategy to use. Options:
+        - `"top_p"`: Uses nucleus sampling (top-p filtering). **Supported by both OpenAI API and Hugging Face models.**
+        - `"deterministic"`: Disables sampling (`temperature=0.0`) and sets `top_p=1.0` for fully deterministic outputs. **Supported by both OpenAI API and Hugging Face models.**
+        - `"top_k"`: Samples from the top `k` most likely tokens. **Ignored by OpenAI API models.**
+        - `"beam_search"`: Uses beam search with `num_beams > 1`. **Ignored by OpenAI API models.**
+        - `"contrastive"`: Uses contrastive search with a fixed `top_k=4` and `penalty_alpha=0.6`. **Ignored by OpenAI API models.**
+      - top_k (int, optional): The number of top tokens to sample from when `search_strategy="top_k"`. Ignored for OpenAI API.
+      - top_p (float, optional): The cumulative probability threshold for nucleus sampling (`search_strategy="top_p"`). If `None`, uses model-specific defaults.
+      - num_beams (int, optional): The number of beams for beam search (`search_strategy="beam_search"`). Ignored for OpenAI API.
+      - estimate_cost (bool, optional): If `True` and cost parameters are available in `model_config`, prints an estimated token cost. Default is `False`.
+      - system_prompt (str, optional): A system-level instruction prompt used when interacting with API-based models. Default is a generic assistant prompt.
+
+    Returns:
+      - str or list of str: The generated response(s), either as a single string (for a single prompt) or a list of strings (for batch processing).
+
+    Notes:
+      - **OpenAI API models only support `top_p` and `deterministic` strategies.**
+      - **The following strategies are ignored by OpenAI API models: `top_k`, `beam_search`, and `contrastive`.**
+      - `"deterministic"` strategy enforces `temperature=0.0` and `top_p=1.0` to ensure reproducible outputs.
+      - If `top_p` is not explicitly provided, OpenAI models will use their default nucleus sampling setting.
+      - API-based models (e.g., OpenAI, Gemini) may have internal optimizations that override some generation parameters.
+      - If `model_config` is improperly configured, an error message is returned.
+
+    Example Usage:
+      >>> response = llm_generate(model_config, "What is artificial intelligence?", search_strategy="deterministic")
+      >>> print(response)
+      "Artificial intelligence (AI) is the simulation of human intelligence in machines."
+    """
+
+    if model_config is None:
+        return "❌ Error: Invalid model configuration. Please check the model name."
+    
+    # Normalize prompts to a list for uniform processing.
+    is_batch = isinstance(prompts, list)
+    prompt_list = prompts if is_batch else [prompts]
+    responses = []
+    num_input_tokens = 0.0
+    num_output_tokens = 0.0
+
+    with warnings.catch_warnings(), contextlib.redirect_stderr(None):
+        warnings.simplefilter("ignore", category=UserWarning)
+
+        # --- API-based models (OpenAI, Gemini) ---
+        if model_config.api_type in ["openai", "gemini"]:
+            try:
+                messages = [{"role": "system", "content": system_prompt}]
+                for prompt in prompt_list:
+                    user_message = {"role": "user", "content": prompt}
+                    full_messages = messages + [user_message]
+
+                    openai_params = {
+                        "model": model_config.model_str,
+                        "messages": full_messages,
+                        "max_tokens": max_new_tokens
+                    }
+
+                    if search_strategy == "deterministic":
+                        openai_params["temperature"] = 0.0
+                        openai_params["top_p"] = 1.0
+                    else:
+                        openai_params["temperature"] = temperature
+                        if top_p is not None:
+                            openai_params["top_p"] = top_p
+
+                    response = model_config.client.chat.completions.create(**openai_params)
+                    response_text = response.choices[0].message.content.strip()
+                    responses.append(clean_response(response_text, prompt))
+                    
+                    if estimate_cost and model_config.cost_per_M_input is not None and model_config.cost_per_M_output is not None:
+                        num_input_tokens += response.usage.prompt_tokens
+                        num_output_tokens += response.usage.completion_tokens
+
+                if estimate_cost:
+                    total_cost = ((num_input_tokens / 1_000_000) * model_config.cost_per_M_input) + \
+                                 ((num_output_tokens / 1_000_000) * model_config.cost_per_M_output)
+                    print(f"💰 Estimated Cost: ${total_cost:.6f} (Input: {num_input_tokens} tokens, Output: {num_output_tokens} tokens)")
+
+                return responses if is_batch else responses[0]
+            
+            except Exception as e:
+                return f"{model_config.api_type.capitalize()} API error: {str(e)}"
+
+        # --- Local Hugging Face model generation ---
+        tokenizer = model_config.tokenizer
+        model = model_config.model
+
+        if model is None or tokenizer is None:
+            return "❌ Error: Model or tokenizer is not properly initialized."
+        
+        # Common function for tokenizing a batch, generating, and decoding outputs.
+        def process_batch(batch_prompts):
+            # Tokenization using chat template if available.
+            if hasattr(tokenizer, "apply_chat_template") and getattr(tokenizer, "chat_template", None) is not None:
+                conversations = [[{"role": "system", "content": system_prompt},
+                                  {"role": "user", "content": p}]
+                                 for p in batch_prompts]
+                input_ids = tokenizer.apply_chat_template(conversations, return_tensors="pt",
+                                                          padding=True, truncation=True).to(model.device)
+            else:
+                input_ids = tokenizer(batch_prompts, return_tensors="pt",
+                                      padding=True, truncation=True).to(model.device)
+
+            terminators = [tokenizer.eos_token_id, tokenizer.convert_tokens_to_ids("<|eot_id|>")]
+
+            # Default generation parameters (shared across batches).
+            gen_kwargs = {
+                "max_new_tokens": max_new_tokens,
+                "eos_token_id": terminators,
+                "repetition_penalty": 1.2,
+                "num_beams": num_beams if search_strategy == "beam_search" else 1,
+                "do_sample": temperature > 0,
+                "temperature": temperature,
+            }
+
+            # Adjust generation parameters based on search strategy.
+            if search_strategy == "top_k":
+                gen_kwargs.update({"do_sample": True, "top_k": top_k, "temperature": temperature})
+            elif search_strategy == "top_p":
+                gen_kwargs.update({"do_sample": True, "top_p": top_p if top_p is not None else 0.9, "temperature": temperature})
+            elif search_strategy == "contrastive":
+                gen_kwargs.update({"do_sample": True, "penalty_alpha": 0.6, "top_k": 4, "temperature": temperature})
+            elif search_strategy == "deterministic":
+                gen_kwargs.update({"do_sample": False, "temperature": 0.0, "num_beams": 1})
+
+            with torch.no_grad():
+                output = model.generate(input_ids, **gen_kwargs)
+            
+            batch_responses = tokenizer.batch_decode(output, skip_special_tokens=True)
+            return [clean_response(resp, prompt) for resp, prompt in zip(batch_responses, batch_prompts)]
+
+        # Process prompts in batches to avoid memory errors.
+        all_responses = []
+        for i in range(0, len(prompt_list), batch_size):
+            batch_prompts = prompt_list[i:i + batch_size]
+            all_responses.extend(process_batch(batch_prompts))
+        responses = all_responses
+
+    return responses if is_batch else responses[0]
+
 
 
 def clear_pipeline(pipe, verbosity=0):

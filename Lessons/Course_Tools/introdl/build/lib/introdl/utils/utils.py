@@ -79,7 +79,8 @@ def config_paths_keys(env_path="~/Lessons/Course_Tools/local.env", api_keys_env=
 
     # Load API keys if not already set
     if not os.getenv('HF_TOKEN') or not os.getenv('OPENAI_API_KEY'):
-        load_dotenv(api_keys_env, override=False)
+        api_keys_file = Path(api_keys_env).expanduser()
+        load_dotenv(api_keys_file, override=True)
 
     # Retrieve and expand paths
     models_path = Path(os.getenv('MODELS_PATH', "")).expanduser()

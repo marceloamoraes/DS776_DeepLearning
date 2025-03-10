@@ -10,18 +10,29 @@ authors = [
     { name = "Your Name", email = "you@example.com" }
 ]
 dependencies = [
+    "accelerate",
+    "bitsandbytes>=0.45.3",
+    "google-genai",
     "IPython",
     "ipywidgets",
     "ipycanvas",
+    "kagglehub",
     "matplotlib",
     "numpy",
+    "openai>=1.65.5",
     "pandas",
+    "pyperclip",
     "scipy",
     "seaborn",
+    "segmentation_models_pytorch",
+    "timm",
     "torch",
     "torchinfo",
+    "torchmetrics",
     "torchvision",
-    "tqdm"
+    "tqdm",
+    "transformers>=4.40.9",
+    "ultralytics"
 ]
 
 [tool.setuptools]

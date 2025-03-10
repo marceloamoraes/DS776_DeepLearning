@@ -3,15 +3,26 @@ Name: introdl
 Version: 1.0
 Summary: Introductory Deep Learning Package
 Author-email: Your Name <you@example.com>
+Requires-Dist: accelerate
+Requires-Dist: bitsandbytes>=0.45.3
+Requires-Dist: google-genai
 Requires-Dist: IPython
 Requires-Dist: ipywidgets
 Requires-Dist: ipycanvas
+Requires-Dist: kagglehub
 Requires-Dist: matplotlib
 Requires-Dist: numpy
+Requires-Dist: openai>=1.65.5
 Requires-Dist: pandas
+Requires-Dist: pyperclip
 Requires-Dist: scipy
 Requires-Dist: seaborn
+Requires-Dist: segmentation_models_pytorch
+Requires-Dist: timm
 Requires-Dist: torch
 Requires-Dist: torchinfo
+Requires-Dist: torchmetrics
 Requires-Dist: torchvision
 Requires-Dist: tqdm
+Requires-Dist: transformers>=4.40.9
+Requires-Dist: ultralytics
