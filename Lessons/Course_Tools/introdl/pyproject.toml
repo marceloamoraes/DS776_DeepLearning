@@ -11,7 +11,9 @@ authors = [
 ]
 dependencies = [
     "accelerate",
+    "bertviz",
     "bitsandbytes>=0.45.3",
+    "datasets",
     "google-genai",
     "IPython",
     "ipywidgets",
@@ -22,6 +24,7 @@ dependencies = [
     "openai>=1.65.5",
     "pandas",
     "pyperclip",
+    "scikit-learn",
     "scipy",
     "seaborn",
     "segmentation_models_pytorch",

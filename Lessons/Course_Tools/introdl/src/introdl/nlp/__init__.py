@@ -5,6 +5,7 @@ from .nlp import clear_pipeline
 from .nlp import print_pipeline_info
 from .nlp import display_markdown
 from .nlp import JupyterChat
+from .nlp import clean_response
 
 
 __all__ = [
@@ -15,4 +16,5 @@ __all__ = [
     "print_pipeline_info",
     "display_markdown",
     "JupyterChat",
+    "clean_response",
 ]

@@ -16,7 +16,7 @@ from textwrap import TextWrapper
 from sklearn.model_selection import train_test_split
 from torch.utils.data import Subset
 from pathlib import Path
-from huggingface_hub import hf_hub_download
+from huggingface_hub import hf_hub_download, login
 import warnings
 import shutil
 from IPython.display import display, IFrame
@@ -78,9 +78,9 @@ def config_paths_keys(env_path="~/Lessons/Course_Tools/local.env", api_keys_env=
     load_dotenv(env_file, override=False)
 
     # Load API keys if not already set
-    if not os.getenv('HF_TOKEN') or not os.getenv('OPENAI_API_KEY'):
+    if not os.getenv('HF_TOKEN') or not os.getenv('OPENAI_API_KEY') or not os.getenv('GEMINI_API_KEY'):
         api_keys_file = Path(api_keys_env).expanduser()
-        load_dotenv(api_keys_file, override=True)
+        load_dotenv(api_keys_file, override=False)
 
     # Retrieve and expand paths
     models_path = Path(os.getenv('MODELS_PATH', "")).expanduser()
@@ -104,6 +104,17 @@ def config_paths_keys(env_path="~/Lessons/Course_Tools/local.env", api_keys_env=
     print(f"DATA_PATH={data_path}")
     print(f"TORCH_HOME={torch_home}")
     print(f"HF_HOME={hf_home}")
+
+    # Login to Hugging Face if token is set
+    if os.getenv('HF_TOKEN'):
+        try:
+            login(token=os.getenv('HF_TOKEN'))
+            print("Successfully logged in to Hugging Face Hub.")
+        except Exception as e:
+            print(f"Failed to login to Hugging Face Hub: {e}")
+    else:
+        print("Set HF_TOKEN in api_keys.env or in environment to login to HuggingFace Hub")
+        print("Most things should work without logging in, but some features may be limited.")
 
     return {
         'MODELS_PATH': models_path,

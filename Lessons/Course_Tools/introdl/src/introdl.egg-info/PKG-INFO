@@ -4,7 +4,9 @@ Version: 1.0
 Summary: Introductory Deep Learning Package
 Author-email: Your Name <you@example.com>
 Requires-Dist: accelerate
+Requires-Dist: bertviz
 Requires-Dist: bitsandbytes>=0.45.3
+Requires-Dist: datasets
 Requires-Dist: google-genai
 Requires-Dist: IPython
 Requires-Dist: ipywidgets
@@ -15,6 +17,7 @@ Requires-Dist: numpy
 Requires-Dist: openai>=1.65.5
 Requires-Dist: pandas
 Requires-Dist: pyperclip
+Requires-Dist: scikit-learn
 Requires-Dist: scipy
 Requires-Dist: seaborn
 Requires-Dist: segmentation_models_pytorch
