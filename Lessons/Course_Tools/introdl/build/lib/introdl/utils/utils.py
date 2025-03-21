@@ -16,7 +16,7 @@ from textwrap import TextWrapper
 from sklearn.model_selection import train_test_split
 from torch.utils.data import Subset
 from pathlib import Path
-from huggingface_hub import hf_hub_download, login
+#from huggingface_hub import hf_hub_download, login
 import warnings
 import shutil
 from IPython.display import display, IFrame
@@ -93,6 +93,7 @@ def config_paths_keys(env_path="~/Lessons/Course_Tools/local.env", api_keys_env=
     os.environ['DATA_PATH'] = str(data_path)
     os.environ['TORCH_HOME'] = str(torch_home)
     os.environ['HF_HOME'] = str(hf_home)
+    os.environ['HF_HUB_CACHE'] = str(hf_home)
 
     # Create directories if they don't exist
     for path in [models_path, data_path, torch_home, hf_home]:
@@ -104,10 +105,12 @@ def config_paths_keys(env_path="~/Lessons/Course_Tools/local.env", api_keys_env=
     print(f"DATA_PATH={data_path}")
     print(f"TORCH_HOME={torch_home}")
     print(f"HF_HOME={hf_home}")
+    print(f"HF_HUB_CACHE={hf_home}")
 
     # Login to Hugging Face if token is set
     if os.getenv('HF_TOKEN'):
         try:
+            from huggingface_hub import login
             login(token=os.getenv('HF_TOKEN'))
             print("Successfully logged in to Hugging Face Hub.")
         except Exception as e:
@@ -120,7 +123,7 @@ def config_paths_keys(env_path="~/Lessons/Course_Tools/local.env", api_keys_env=
         'MODELS_PATH': models_path,
         'DATA_PATH': data_path
     }
- 
+
 def get_device():
     """
     Returns the appropriate device ('cuda', 'mps', or 'cpu') depending on availability.

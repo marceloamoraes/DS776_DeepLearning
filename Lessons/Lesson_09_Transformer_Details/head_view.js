@@ -97,7 +97,8 @@ requirejs(['jquery', 'd3'], function ($, d3) {
         const svg = d3.select(`#${config.rootDivId} #vis`)
             .append('svg')
             .attr("width", "100%")
-            .attr("height", height + "px");
+            .attr("height", height + "px")
+            .style("background-color", "white");
 
         // Display tokens on left and right side of visualization
         renderText(svg, leftText, true, layerAttention, 0);

@@ -1,4 +1,4 @@
-Metadata-Version: 2.2
+Metadata-Version: 2.4
 Name: introdl
 Version: 1.0
 Summary: Introductory Deep Learning Package
@@ -16,6 +16,7 @@ Requires-Dist: matplotlib
 Requires-Dist: numpy
 Requires-Dist: openai>=1.65.5
 Requires-Dist: pandas
+Requires-Dist: protobuf
 Requires-Dist: pyperclip
 Requires-Dist: scikit-learn
 Requires-Dist: scipy

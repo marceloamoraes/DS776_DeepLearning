@@ -240,6 +240,12 @@ def display_attention(idx, model, test_loader, vocab):
     )
 
 
+###########################################################################################################
+# the following code is from bertviz - https://github.com/jessevig/bertviz
+# but has been tweaked to work current versions of Ipython
+# and to use white backgrounds to make visualizations more readable in dark mode
+###########################################################################################################
+
 def head_view(
         attention=None,
         tokens=None,
