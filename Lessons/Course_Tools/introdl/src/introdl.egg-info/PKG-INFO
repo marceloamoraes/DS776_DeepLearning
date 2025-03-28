@@ -7,6 +7,8 @@ Requires-Dist: accelerate
 Requires-Dist: bertviz
 Requires-Dist: bitsandbytes>=0.45.3
 Requires-Dist: datasets
+Requires-Dist: evaluate
+Requires-Dist: gliner
 Requires-Dist: google-genai
 Requires-Dist: IPython
 Requires-Dist: ipywidgets
@@ -18,10 +20,13 @@ Requires-Dist: openai>=1.65.5
 Requires-Dist: pandas
 Requires-Dist: protobuf
 Requires-Dist: pyperclip
+Requires-Dist: rapidfuzz
 Requires-Dist: scikit-learn
 Requires-Dist: scipy
 Requires-Dist: seaborn
 Requires-Dist: segmentation_models_pytorch
+Requires-Dist: seqeval
+Requires-Dist: spacy
 Requires-Dist: timm
 Requires-Dist: torch
 Requires-Dist: torchinfo

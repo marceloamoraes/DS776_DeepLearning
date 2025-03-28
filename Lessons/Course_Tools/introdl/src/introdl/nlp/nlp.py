@@ -127,37 +127,45 @@ class ModelConfig:
     def unload(self):
         release_model()
 
+
 def llm_configure(model_str, cost_per_M_input=None, cost_per_M_output=None,
                   llm_provider=None):
     """
-    Configures the model based on the provided model_str.
-    In addition to cost parameters, this function allows overriding the provider via the `llm_provider` argument.
+    Configures the model based on the provided model_str and optional llm_provider.
+    
+    If llm_provider is None, then:
+      - If the expanded model_str is in OPENAI_MODELS or GEMINI_MODELS, then a configuration 
+        using that API is returned.
+      - Otherwise, a local Hugging Face model is loaded (with caching).
+    
+    If llm_provider is provided, it must be one of "openai", "gemini", "together", or "groq",
+    and the corresponding API is used regardless of the model name.
     
     Parameters:
-      - cost_per_M_input: Cost per million input tokens (for API-based models).
-      - cost_per_M_output: Cost per million output tokens (for API-based models).
-      - llm_provider (str, optional): Can be set to "together" or "groq" to force the use of the corresponding API.
-      - model_str: A model name string (can be a short alias or a full model name).
+      model_str (str): A model name string (can be a short alias or a full model name).
+      cost_per_M_input (float, optional): Cost per million input tokens (for API-based models).
+      cost_per_M_output (float, optional): Cost per million output tokens (for API-based models).
+      llm_provider (str, optional): Either None (to load a local model or default API from short name)
+          or one of "openai", "gemini", "together", or "groq".
     
     Returns:
-      A ModelConfig object.
+      ModelConfig: The configuration object with model, tokenizer, and API client settings.
     """
     model_str = model_str.strip()
-    
-    # Validate llm_provider if provided.
-    if llm_provider is not None and llm_provider not in ["together", "groq"]:
-        raise ValueError("llm_provider must be either None, 'together', or 'groq'")
+    valid_api_providers = ["openai", "gemini", "together", "groq"]
     
     # Expand short names.
     if model_str in SHORT_NAME_MAP:
         model_str = SHORT_NAME_MAP[model_str]
     
-    # If llm_provider is provided, override API selection.
+    # If llm_provider is provided, use that API regardless of model_str.
     if llm_provider is not None:
-        return ModelConfig(model_str, api_type=llm_provider,
+        if llm_provider.lower() not in valid_api_providers:
+            raise ValueError("llm_provider must be either None or one of 'openai', 'gemini', 'together', or 'groq'")
+        return ModelConfig(model_str, api_type=llm_provider.lower(),
                            cost_per_M_input=cost_per_M_input, cost_per_M_output=cost_per_M_output)
     
-    # For API-based models.
+    # If llm_provider is None, check if the model_str is one of the API models.
     if model_str in OPENAI_MODELS:
         return ModelConfig(model_str, api_type="openai",
                            cost_per_M_input=cost_per_M_input, cost_per_M_output=cost_per_M_output)
@@ -165,10 +173,11 @@ def llm_configure(model_str, cost_per_M_input=None, cost_per_M_output=None,
         return ModelConfig(model_str, api_type="gemini",
                            cost_per_M_input=cost_per_M_input, cost_per_M_output=cost_per_M_output)
     
-    # For Hugging Face models: use the global cache.
+    # Otherwise, assume a local Hugging Face model.
     global LOADED_MODELS, LOADED_TOKENIZERS
     if model_str in LOADED_MODELS:
-        return ModelConfig(model_str, LOADED_MODELS[model_str], LOADED_TOKENIZERS[model_str])
+        return ModelConfig(model_str, LOADED_MODELS[model_str], LOADED_TOKENIZERS[model_str],
+                           cost_per_M_input=cost_per_M_input, cost_per_M_output=cost_per_M_output)
     elif LOADED_MODELS:
         release_model()
         torch.cuda.empty_cache()
@@ -191,7 +200,85 @@ def llm_configure(model_str, cost_per_M_input=None, cost_per_M_output=None,
         print(f"❌ Error loading model {model_str}: {str(e)}")
         return None
 
+import re
 
+def clean_response(response, prompt=None, cleaning_mode="generic", split_string=None):
+    """
+    Cleans the response by removing unwanted text.
+
+    If split_string is provided (not None), the function searches for split_string in the response
+    and removes everything up to and including any whitespace or new lines immediately after it,
+    returning the remainder.
+
+    If split_string is None, the function applies the original cleaning methods:
+      - In "qwen" mode, it uses the last 10 characters of the prompt as a marker and removes all text
+        up to and including the line immediately following that marker.
+      - In generic mode, it removes the input prompt, an "assistant" label, and any extraneous blank lines.
+    """
+    if split_string is not None:
+        pos = response.find(split_string)
+        if pos != -1:
+            pos_end = pos + len(split_string)
+            # Skip any whitespace or newlines immediately after split_string.
+            while pos_end < len(response) and response[pos_end] in " \t\n\r":
+                pos_end += 1
+            return response[pos_end:].strip()
+        else:
+            return response.strip()
+
+    if cleaning_mode == "qwen" and prompt:
+        # Use only the last 10 characters of the prompt as the marker.
+        marker = prompt[-10:]
+        pos = response.find(marker)
+        if pos != -1:
+            # Find the end of the line containing the marker.
+            end_line = response.find("\n", pos)
+            if end_line != -1:
+                # Remove up to and including the next line.
+                next_line_end = response.find("\n", end_line + 1)
+                if next_line_end != -1:
+                    response = response[next_line_end+1:].strip()
+                else:
+                    response = response[end_line+1:].strip()
+            else:
+                response = response[pos+len(marker):].strip()
+        else:
+            # Fallback: if the marker isn't found, remove the first line.
+            lines = response.splitlines()
+            if len(lines) > 1:
+                response = "\n".join(lines[1:]).strip()
+            else:
+                response = response.strip()
+    else:
+        if prompt:
+            # --- Original prompt removal logic ---
+            prompt_marker_pattern = re.escape(prompt) + r"\s*\.\s*assistant"
+            match = re.search(prompt_marker_pattern, response)
+            if match:
+                response = response[match.end():].strip()
+            else:
+                match = re.search(re.escape(prompt), response)
+                if match:
+                    response = response[match.end():].strip()
+
+            # --- Additional marker removal ---
+            extra_marker = prompt[-10:] + "assistant"
+            pattern = ""
+            for char in extra_marker:
+                if char.isspace():
+                    pattern += r"\s+"
+                else:
+                    pattern += re.escape(char) + r"\s*"
+            match = re.search(pattern, response, flags=re.IGNORECASE)
+            if match:
+                response = response[match.end():].strip()
+
+    # Finally, remove any lines that consist solely of the word "assistant" (ignoring case)
+    response = re.sub(r"^\s*assistant\s*", "", response, flags=re.IGNORECASE).strip()
+    response = "\n".join([line for line in response.split("\n") if line.strip()])
+    return response
+
+'''
 def clean_response(response, prompt=None, cleaning_mode="generic"):
     """
     Cleans the response by removing the input prompt, an 'assistant' label,
@@ -253,146 +340,84 @@ def clean_response(response, prompt=None, cleaning_mode="generic"):
     response = re.sub(r"^\s*assistant\s*", "", response, flags=re.IGNORECASE).strip()
     response = "\n".join([line for line in response.split("\n") if line.strip()])
     return response
-
-'''
-def clean_response(response, prompt=None):
-    """
-    Cleans the response by removing the input prompt, an 'assistant' label,
-    and any extraneous blank lines.
-
-    Additionally, if a prompt is provided, it searches for the last 10 characters
-    of the prompt concatenated with "assistant", ignoring whitespace differences,
-    and if found, removes everything in the response up to and including that string.
-    """
-    if prompt:
-        # --- Original prompt removal ---
-        prompt_marker_pattern = re.escape(prompt) + r"\s*\.\s*assistant"
-        match = re.search(prompt_marker_pattern, response)
-        if match:
-            response = response[match.end():].strip()
-        else:
-            match = re.search(re.escape(prompt), response)
-            if match:
-                response = response[match.end():].strip()
-
-        # --- Additional marker removal ---
-        extra_marker = prompt[-10:] + "assistant"
-        # Build a regex pattern that ignores whitespace differences.
-        pattern = ""
-        for char in extra_marker:
-            if char.isspace():
-                pattern += r"\s+"
-            else:
-                pattern += re.escape(char) + r"\s*"
-        match = re.search(pattern, response, flags=re.IGNORECASE)
-        if match:
-            response = response[match.end():].strip()
-
-    # Remove any lines that consist solely of the word "assistant" (ignoring case).
-    response = re.sub(r"^\s*assistant\s*", "", response, flags=re.IGNORECASE).strip()
-    response = "\n".join([line for line in response.split("\n") if line.strip()])
-    return response
 '''
 
-def llm_generate(model_config, prompts, 
-                 batch_size=1, assistant_prompt=None, estimate_cost=False, max_new_tokens=200, 
-                 remove_input_prompt=True, search_strategy="top_p", top_k=50, top_p=0.9, num_beams=1, temperature=0.7,
-                 system_prompt="You are an AI assistant that provides brief answers. Do not include the input prompt in your answer.",
-                 rate_limit=None,
-                 disable_tqdm=False
-                 ):
+def configure_gen_kwargs(strategy, top_k, top_p, num_beams, temperature, max_new_tokens):
     """
-    Generates responses from a language model.
-    
-    This function handles search strategy and parameters on the fly and uses progress bars
-    for batch processing (both for API-based and local generation) if disable_tqdm is False.
-    
-    Parameters (in alphabetical order):
-      - assistant_prompt (str, optional): An optional previous assistant message to include in the conversation.
-      - batch_size (int): Number of prompts processed per batch. (default: 1)
-      - estimate_cost (bool): If True, prints estimated token cost (if cost parameters are set). (default: False)
-      - max_new_tokens (int): Maximum number of new tokens to generate. (default: 200)
-      - num_beams (int): Number of beams for beam search. (default: 1)
-      - remove_input_prompt (bool): If True, removes the input prompt from the generated response. (default: True)
-      - search_strategy (str): Decoding strategy; supported options: "top_k", "top_p", "contrastive", "beam_search", "deterministic". (default: "top_p")
-      - system_prompt (str): System-level instruction prompt for API-based models. (default updated for cleaner outputs)
-      - temperature (float): Sampling temperature. (default: 0.7)
-      - top_k (int): Number of top tokens to consider for "top_k" strategy. (default: 50)
-      - top_p (float): Cumulative probability threshold for nucleus sampling ("top_p"). (default: 0.9)
-      - rate_limit (float, optional): Maximum number of API requests per minute. If provided, the function will delay API calls accordingly.
-      - disable_tqdm (bool, optional): If True, disables tqdm progress bars. (default: False)
-    
-    Additional required parameters:
-      - model_config (ModelConfig): Preconfigured instance.
-      - prompts (str or list of str): Single prompt or batch of prompts.
-    
-    Returns:
-      A generated response (or list of responses) as a string.
+    Returns a dictionary of generation kwargs based on the search strategy.
     """
-    # Use search_strategy directly.
-    strategy = search_strategy
+    gen_kwargs = {"max_new_tokens": max_new_tokens}
+    if strategy == "top_k":
+        gen_kwargs.update({"do_sample": True, "top_k": top_k, "temperature": temperature})
+    elif strategy == "top_p":
+        gen_kwargs.update({"do_sample": True, "top_p": top_p, "temperature": temperature})
+    elif strategy == "contrastive":
+        gen_kwargs.update({"do_sample": True, "penalty_alpha": 0.6, "top_k": 4, "temperature": temperature})
+    elif strategy == "beam_search":
+        gen_kwargs.update({"do_sample": False, "num_beams": num_beams, "temperature": temperature})
+    elif strategy == "deterministic":
+        gen_kwargs.update({"do_sample": False, "num_beams": 1, "top_p": 1.0, "temperature": None, "top_k": None})
+    else:
+        gen_kwargs.update({"do_sample": True, "top_p": top_p, "temperature": temperature})
+    return gen_kwargs
 
-    if model_config is None:
-        return "❌ Error: Invalid model configuration. Please check the model name."
-    
-    is_batch = isinstance(prompts, list)
-    prompt_list = prompts if is_batch else [prompts]
+def generate_api_text(model_config, prompt_list, system_prompt, assistant_prompt,
+                      search_strategy, max_new_tokens, temperature, top_p,
+                      rate_limit, estimate_cost, remove_input_prompt, split_string):
+    """
+    Generates text using an API-based model.
+    """
     responses = []
     num_input_tokens = 0.0
     num_output_tokens = 0.0
-
-    # --- API-based models ---
-    if model_config.api_type in ["openai", "gemini", "together", "groq"]:
-        try:
-            messages = [{"role": "system", "content": system_prompt}]
-            if assistant_prompt is not None:
-                messages.append({"role": "assistant", "content": assistant_prompt})
-            
-            with tqdm(total=len(prompt_list), desc="API Generation", disable=disable_tqdm,
-                      leave=True, dynamic_ncols=True, file=sys.stdout) as pbar:
-                for prompt in prompt_list:
-                    user_message = {"role": "user", "content": prompt}
-                    full_messages = messages + [user_message]
-
-                    openai_params = {
-                        "model": model_config.model_str,
-                        "messages": full_messages,
-                        "max_tokens": max_new_tokens
-                    }
-                    if strategy == "deterministic":
-                        openai_params["temperature"] = 0.0
-                        openai_params["top_p"] = 1.0
-                    else:
-                        openai_params["temperature"] = temperature
-                        openai_params["top_p"] = top_p
-
-                    response = model_config.client.chat.completions.create(**openai_params)
-                    response_text = response.choices[0].message.content.strip()
-                    responses.append(clean_response(response_text, prompt) if remove_input_prompt else response_text)
-                    
-                    if rate_limit is not None:
-                        time.sleep(60.0 / rate_limit)
-                    
-                    if estimate_cost:
-                        num_input_tokens += response.usage.prompt_tokens
-                        num_output_tokens += response.usage.completion_tokens
-
-                    pbar.update(1)
-            
-            if estimate_cost:
-                if model_config.cost_per_M_input is not None and model_config.cost_per_M_output is not None:
-                    total_cost = ((num_input_tokens / 1_000_000) * model_config.cost_per_M_input) + \
-                                ((num_output_tokens / 1_000_000) * model_config.cost_per_M_output)
-                    print(f"💰 Estimated Cost: ${total_cost:.6f} (Input: {num_input_tokens} tokens, Output: {num_output_tokens} tokens)")
-                else:
-                    print("⚠️ Cost parameters not set. Cannot estimate cost.")
-                    print(f"💰 Token Usage: Input: {num_input_tokens} tokens, Output: {num_output_tokens} tokens")
-            return responses if is_batch else responses[0]
-        
-        except Exception as e:
-            return f"{model_config.api_type.capitalize()} API error: {str(e)}"
+    messages = [{"role": "system", "content": system_prompt}]
+    if assistant_prompt is not None:
+        messages.append({"role": "assistant", "content": assistant_prompt})
     
-    # --- Local Hugging Face model generation ---
+    for prompt in prompt_list:
+        user_message = {"role": "user", "content": prompt}
+        full_messages = messages + [user_message]
+        openai_params = {
+            "model": model_config.model_str,
+            "messages": full_messages,
+            "max_tokens": max_new_tokens
+        }
+        if search_strategy == "deterministic":
+            openai_params["temperature"] = 0.0
+            openai_params["top_p"] = 1.0
+        else:
+            openai_params["temperature"] = temperature
+            openai_params["top_p"] = top_p
+        
+        response = model_config.client.chat.completions.create(**openai_params)
+        response_text = response.choices[0].message.content.strip()
+        responses.append(clean_response(response_text, prompt, split_string=split_string) if remove_input_prompt else response_text)
+        
+        if rate_limit is not None:
+            time.sleep(60.0 / rate_limit)
+        if estimate_cost:
+            num_input_tokens += response.usage.prompt_tokens
+            num_output_tokens += response.usage.completion_tokens
+    
+    if estimate_cost:
+        if model_config.cost_per_M_input is not None and model_config.cost_per_M_output is not None:
+            total_cost = ((num_input_tokens / 1_000_000) * model_config.cost_per_M_input) + \
+                         ((num_output_tokens / 1_000_000) * model_config.cost_per_M_output)
+            print(f"💰 Estimated Cost: ${total_cost:.6f} (Input: {num_input_tokens} tokens, Output: {num_output_tokens} tokens)")
+        else:
+            print("⚠️ Cost parameters not set. Cannot estimate cost.")
+            print(f"💰 Token Usage: Input: {num_input_tokens} tokens, Output: {num_output_tokens} tokens")
+    
+    return responses
+
+
+def generate_local_text(model_config, prompt_list, system_prompt, assistant_prompt,
+                        search_strategy, max_new_tokens, temperature, top_p,
+                        num_beams, top_k, remove_input_prompt, batch_size, disable_tqdm, split_string):
+    """
+    Generates text using a local Hugging Face model.
+    Batches the inputs and uses a tqdm progress bar if there is more than one prompt.
+    """
     tokenizer = model_config.tokenizer
     model = model_config.model
 
@@ -423,48 +448,149 @@ def llm_generate(model_config, prompts,
                 new_prompts.append("\n".join(prompt_parts))
             input_ids = tokenizer(new_prompts, return_tensors="pt",
                                   padding=True, truncation=True).to(model.device)
-
-        terminators = [token for token in [tokenizer.eos_token_id, tokenizer.convert_tokens_to_ids("<|eot_id|>")] if token is not None]
-
-        gen_kwargs = {
-            "max_new_tokens": max_new_tokens,
-            "eos_token_id": terminators,
-            "repetition_penalty": 1.2,
-        }
-        if strategy == "top_k":
-            gen_kwargs.update({"do_sample": True, "top_k": top_k, "temperature": temperature})
-        elif strategy == "top_p":
-            gen_kwargs.update({"do_sample": True, "top_p": top_p, "temperature": temperature})
-        elif strategy == "contrastive":
-            gen_kwargs.update({"do_sample": True, "penalty_alpha": 0.6, "top_k": 4, "temperature": temperature})
-        elif strategy == "beam_search":
-            gen_kwargs.update({"do_sample": False, "num_beams": num_beams, "temperature": temperature})
-        elif strategy == "deterministic":
-            gen_kwargs.update({"do_sample": False, "num_beams": 1, "top_p": 1.0, "temperature": None, "top_k": None})
-        else:
-            gen_kwargs.update({"do_sample": True, "top_p": top_p, "temperature": temperature})
-
+        
+        terminators = [token for token in [tokenizer.eos_token_id, tokenizer.convert_tokens_to_ids("<|eot_id|>")]
+                       if token is not None]
+        
+        gen_kwargs = configure_gen_kwargs(search_strategy, top_k, top_p, num_beams, temperature, max_new_tokens)
+        gen_kwargs.update({"repetition_penalty": 1.2, "eos_token_id": terminators})
+        
         with torch.no_grad():
             output = model.generate(input_ids, **gen_kwargs)
         batch_responses = tokenizer.batch_decode(output, skip_special_tokens=True)
-
         if remove_input_prompt:
-           # Determine cleaning mode based on model string.
             cleaning_mode = "qwen" if "qwen" in model_config.model_str.lower() else "generic"
-            return [clean_response(resp, prompt, cleaning_mode=cleaning_mode) for resp, prompt in zip(batch_responses, batch_prompts)]
+            return [clean_response(resp, prompt, cleaning_mode=cleaning_mode, split_string=split_string)
+                    for resp, prompt in zip(batch_responses, batch_prompts)]
         else:
             return batch_responses
 
-    with tqdm(total=len(prompt_list), desc="Local Generation", disable=disable_tqdm,
-              leave=True, dynamic_ncols=True, file=sys.stdout) as pbar:
-        all_responses = []
+    responses = []
+    use_tqdm = (len(prompt_list) > 1) and (not disable_tqdm)
+    if use_tqdm:
+        from tqdm.autonotebook import tqdm
+        pbar = tqdm(total=len(prompt_list), desc="Local Generation", leave=True, dynamic_ncols=True, file=sys.stdout)
+    else:
+        pbar = contextlib.nullcontext()
+    
+    with pbar:
         for i in range(0, len(prompt_list), batch_size):
             batch_prompts = prompt_list[i:i + batch_size]
-            all_responses.extend(process_batch(batch_prompts))
-            pbar.update(len(batch_prompts))
-        responses = all_responses
+            responses.extend(process_batch(batch_prompts))
+            if use_tqdm:
+                pbar.update(len(batch_prompts))
+    
+    return responses
 
+
+def llm_generate(model_config, prompts, 
+                 batch_size=1, assistant_prompt=None, estimate_cost=False, max_new_tokens=200, 
+                 remove_input_prompt=True, search_strategy="top_p", top_k=50, top_p=0.9, num_beams=1, temperature=0.7,
+                 system_prompt="You are an AI assistant that provides brief answers. Do not include the input prompt in your answer.",
+                 rate_limit=None,
+                 disable_tqdm=False,
+                 split_string=None):
+    """
+    Generates responses from a language model.
+    Dispatches API-based or local text generation.
+    Disables tqdm if there is only one prompt.
+    """
+    if model_config is None:
+        return "❌ Error: Invalid model configuration. Please check the model name."
+    
+    is_batch = isinstance(prompts, list)
+    prompt_list = prompts if is_batch else [prompts]
+    if len(prompt_list) == 1:
+        disable_tqdm = True
+    
+    if model_config.api_type in ["openai", "gemini", "together", "groq"]:
+        try:
+            responses = generate_api_text(model_config, prompt_list, system_prompt, assistant_prompt,
+                                          search_strategy, max_new_tokens, temperature, top_p,
+                                          rate_limit, estimate_cost, remove_input_prompt, split_string)
+        except Exception as e:
+            return f"{model_config.api_type.capitalize()} API error: {str(e)}"
+    else:
+        responses = generate_local_text(model_config, prompt_list, system_prompt, assistant_prompt,
+                                        search_strategy, max_new_tokens, temperature, top_p,
+                                        num_beams, top_k, remove_input_prompt, batch_size, disable_tqdm, split_string)
+    
     return responses if is_batch else responses[0]
+
+def generate_text(prompts, 
+                  model_name='llama-3p2-3B', 
+                  llm_provider=None, 
+                  system_prompt="You are an AI assistant that provides brief answers. Do not include the input prompt in your answer.",
+                  assistant_prompt=None,
+                  batch_size=1,
+                  cost_per_M_input=None, 
+                  cost_per_M_output=None,
+                  disable_tqdm=False,
+                  estimate_cost=False,
+                  max_new_tokens=200,
+                  num_beams=1,
+                  rate_limit=None,
+                  remove_input_prompt=True,
+                  search_strategy="top_p",
+                  split_string=None,
+                  temperature=0.7,
+                  top_k=50,
+                  top_p=0.9):
+    """
+    Generates responses from a language model given a prompt or list of prompts.
+    
+    This high-level interface accepts a model name (or short name) along with an optional
+    llm_provider. If llm_provider is None, then the model is loaded either locally (if not an API model)
+    or using the default API (if the model is one of "gpt-4o", "gpt-4o-mini", "gemini-flash", etc.).
+    If llm_provider is specified (e.g. "openai" or "gemini"), the code uses that API.
+    
+    Parameters:
+      prompts (str or list of str): The input prompt(s) for text generation.
+      model_name (str, optional): Full or short model name. Defaults to 'llama3p2-3B'.
+      llm_provider (str, optional): Provider for the model. If None, a local model is loaded or 
+          the default API is used if the model name indicates an API model. Otherwise, must be one of 
+          "openai", "gemini", "together", or "groq".
+      system_prompt (str, optional): The system-level instruction prompt.
+      assistant_prompt (str, optional): An optional previous assistant message.
+      batch_size (int, optional): Number of prompts processed per batch. Defaults to 1.
+      cost_per_M_input (float, optional): Cost per million input tokens (for API-based models).
+      cost_per_M_output (float, optional): Cost per million output tokens (for API-based models).
+      disable_tqdm (bool, optional): If True, disables progress bars. Defaults to False.
+      estimate_cost (bool, optional): If True, prints estimated token cost when available.
+      max_new_tokens (int, optional): Maximum number of new tokens to generate. Defaults to 200.
+      num_beams (int, optional): Number of beams for beam search. Defaults to 1.
+      rate_limit (float, optional): Maximum API requests per minute (if applicable).
+      remove_input_prompt (bool, optional): If True, removes the input prompt from the generated response.
+      search_strategy (str, optional): Decoding strategy; options include "top_k", "top_p", "contrastive", 
+          "beam_search", and "deterministic". Defaults to "top_p".
+      temperature (float, optional): Sampling temperature. Defaults to 0.7.
+      top_k (int, optional): Number of top tokens to consider for "top_k" sampling. Defaults to 50.
+      top_p (float, optional): Cumulative probability threshold for nucleus sampling. Defaults to 0.9.
+    
+    Returns:
+      str or list of str: The generated response(s) as a string or a list of strings.
+    """
+    # Expand short names if necessary.
+    if model_name in SHORT_NAME_MAP:
+        model_str = SHORT_NAME_MAP[model_name]
+    else:
+        model_str = model_name.strip()
+    
+    # Use llm_configure to obtain the ModelConfig object.
+    config = llm_configure(model_str, cost_per_M_input=cost_per_M_input, 
+                           cost_per_M_output=cost_per_M_output, llm_provider=llm_provider)
+    if config is None:
+        return f"❌ Error: Unable to configure model {model_str}."
+    
+    # Dispatch to legacy llm_generate.
+    return llm_generate(config, prompts, batch_size=batch_size, assistant_prompt=assistant_prompt,
+                        estimate_cost=estimate_cost, max_new_tokens=max_new_tokens,
+                        remove_input_prompt=remove_input_prompt, search_strategy=search_strategy,
+                        top_k=top_k, top_p=top_p, num_beams=num_beams, temperature=temperature,
+                        system_prompt=system_prompt, rate_limit=rate_limit, disable_tqdm=disable_tqdm,
+                        split_string=split_string)
+
+
 
 def clear_pipeline(pipe, verbosity=0):
     """Clears a Hugging Face pipeline and frees CUDA memory."""

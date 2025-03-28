@@ -16,7 +16,6 @@ from textwrap import TextWrapper
 from sklearn.model_selection import train_test_split
 from torch.utils.data import Subset
 from pathlib import Path
-#from huggingface_hub import hf_hub_download, login
 import warnings
 import shutil
 from IPython.display import display, IFrame
@@ -110,6 +109,8 @@ def config_paths_keys(env_path="~/Lessons/Course_Tools/local.env", api_keys_env=
     # Login to Hugging Face if token is set
     if os.getenv('HF_TOKEN'):
         try:
+            import logging
+            logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
             from huggingface_hub import login
             login(token=os.getenv('HF_TOKEN'))
             print("Successfully logged in to Hugging Face Hub.")
@@ -414,31 +415,52 @@ def create_CIFAR10_loaders(transform_train=None, transform_test=None, transform_
     else:
         return train_loader, test_loader
 
-def wrap_print_text(print):
+# def wrap_print_text(print):
+#     """
+#     Wraps the given print function to format text with a specified width.
+#     This function takes a print function as an argument and returns a new function
+#     that formats the text to a specified width before printing. The text is wrapped
+#     to 80 characters per line, and long words are broken to fit within the width.
+#     Args:
+#         print (function): The original print function to be wrapped.
+#     Returns:
+#         function: A new function that formats text to 80 characters per line and
+#                   then prints it using the original print function.
+#     Example:
+#         wrapped_print = wrap_print_text(print)
+#         wrapped_print("This is a very long text that will be wrapped to fit within 80 characters per line.")
+#     Adapted from: https://stackoverflow.com/questions/27621655/how-to-overload-print-function-to-expand-its-functionality/27621927"""
+
+#     def wrapped_func(text):
+#         if not isinstance(text, str):
+#             text = str(text)
+#         wrapper = TextWrapper(
+#             width=80,
+#             break_long_words=True,
+#             break_on_hyphens=False,
+#             replace_whitespace=False,
+#         )
+#         return print("\n".join(wrapper.fill(line) for line in text.split("\n")))
+
+#     return wrapped_func
+
+def wrap_print_text(original_print, width=80):
     """
     Wraps the given print function to format text with a specified width.
     This function takes a print function as an argument and returns a new function
     that formats the text to a specified width before printing. The text is wrapped
-    to 80 characters per line, and long words are broken to fit within the width.
-    Args:
-        print (function): The original print function to be wrapped.
-    Returns:
-        function: A new function that formats text to 80 characters per line and
-                  then prints it using the original print function.
-    Example:
-        wrapped_print = wrap_print_text(print)
-        wrapped_print("This is a very long text that will be wrapped to fit within 80 characters per line.")
-    Adapted from: https://stackoverflow.com/questions/27621655/how-to-overload-print-function-to-expand-its-functionality/27621927"""
+    to the specified number of characters per line, and long words are broken to fit.
+    """
 
-    def wrapped_func(text):
-        if not isinstance(text, str):
-            text = str(text)
+    def wrapped_func(*args, **kwargs):
+        text = " ".join(str(arg) for arg in args)
         wrapper = TextWrapper(
-            width=80,
+            width=width,
             break_long_words=True,
             break_on_hyphens=False,
             replace_whitespace=False,
         )
-        return print("\n".join(wrapper.fill(line) for line in text.split("\n")))
+        wrapped_text = "\n".join(wrapper.fill(line) for line in text.split("\n"))
+        return original_print(wrapped_text, **kwargs)
 
     return wrapped_func
