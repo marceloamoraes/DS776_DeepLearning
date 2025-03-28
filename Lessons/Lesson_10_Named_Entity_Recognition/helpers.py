@@ -1,196 +1,15 @@
-import pandas as pd
+
+from collections import Counter
+from IPython.display import HTML, display
+import matplotlib.pyplot as plt
+import numpy as np
+from rapidfuzz import fuzz
 import re
-from rapidfuzz.fuzz import token_sort_ratio
 import spacy
 from spacy.tokens import Doc, Span
 from spacy.util import filter_spans
 from spacy import displacy
-from IPython.display import HTML, display
-import matplotlib.pyplot as plt
 import torch
-
-
-# def generate_entity_colors(full_label_list, cmap_name="Set2", special_labels=None):
-#     """
-#     Generate a dictionary mapping entity labels to unique colors for visualization.
-
-#     Args:
-#         full_label_list (list): A list of all possible entity labels (e.g., ["B-PER", "I-PER", "O"]).
-#         cmap_name (str): Name of the matplotlib colormap to use for generating colors.
-#         special_labels (dict): A dictionary of special labels and their custom colors (e.g., {"IGNORE": "#cccccc"}).
-
-#     Returns:
-#         dict: A dictionary where keys are entity labels and values are their corresponding hex color codes.
-#     """
-#     # Get the colormap from matplotlib
-#     cmap = plt.get_cmap(cmap_name)
-#     colors = {}
-
-#     if special_labels is None:
-#         special_labels = {}
-
-#     # Assign a unique color to each label, skipping the "O" label (outside entities)
-#     for i, label in enumerate(sorted(full_label_list)):
-#         if label == "O":
-#             continue  # "O" is not an entity, so we skip it
-#         rgba = cmap(i % cmap.N)  # Get RGBA color from colormap
-#         rgb = tuple(int(255 * x) for x in rgba[:3])  # Convert to RGB
-#         hex_color = '#{:02x}{:02x}{:02x}'.format(*rgb)  # Convert RGB to hex
-#         colors[label] = hex_color
-
-#     # Add any custom colors for special labels
-#     for label, hex_color in special_labels.items():
-#         colors[label] = hex_color
-
-#     return colors
-
-
-# def display_ner_html(tokens, ner_tags, label_list,
-#                      entity_colors=None, cmap_name="Set2",
-#                      subword_label="IGNORE", subword_color="#cccccc"):
-#     """
-#     Displays Named Entity Recognition (NER) results in an HTML format with color-coded entities.
-
-#     Args:
-#         tokens (list): A list of tokens (words) in the input text.
-#         ner_tags (list): A list of NER tags corresponding to the tokens (e.g., [0, 1, 2, -100]).
-#         label_list (list): A list mapping tag indices to label strings (e.g., ["O", "B-PER", "I-PER"]).
-#         entity_colors (dict): A dictionary mapping entity labels to hex color codes. If None, colors are auto-generated.
-#         cmap_name (str): Name of the matplotlib colormap to use for generating colors (default: "Set2").
-#         subword_label (str): Label to use for subword tokens (default: "IGNORE").
-#         subword_color (str): Hex color code for subword tokens (default: "#cccccc").
-
-#     Returns:
-#         None: Displays the NER visualization in a Jupyter Notebook or IPython environment.
-#     """
-#     # Create a blank spaCy language model
-#     nlp = spacy.blank("en")
-
-#     # Create a spaCy Doc object with tokens and spaces
-#     spaces = [True] * (len(tokens) - 1) + [False]  # Add spaces between tokens except the last one
-#     doc = Doc(nlp.vocab, words=tokens, spaces=spaces)
-
-#     # Convert ner_tags (indices) to BIO tag strings using the label_list
-#     bio_tags = [label_list[tag] if tag != -100 else subword_label for tag in ner_tags]
-
-#     spans = []  # List to store entity spans
-#     current_entity = []  # Temporary storage for the current entity's token indices
-#     current_label = None  # Current entity label
-
-#     # Iterate through BIO tags to create entity spans
-#     for i, tag in enumerate(bio_tags):
-#         if tag == subword_label:
-#             # Subword tokens are treated as individual spans
-#             spans.append(Span(doc, i, i + 1, label=subword_label))
-#         elif tag.startswith("B-"):
-#             # Start of a new entity
-#             if current_entity:
-#                 # Save the previous entity span
-#                 spans.append(Span(doc, current_entity[0], current_entity[1], label=current_label))
-#             current_entity = [i, i + 1]  # Start a new entity
-#             current_label = tag
-#         elif tag.startswith("I-") and current_label and tag[2:] == current_label[2:]:
-#             # Continuation of the current entity
-#             current_entity[1] = i + 1
-#         else:
-#             # End of the current entity
-#             if current_entity:
-#                 spans.append(Span(doc, current_entity[0], current_entity[1], label=current_label))
-#             current_entity = []
-#             current_label = None
-
-#     # Add the last entity span if it exists
-#     if current_entity:
-#         spans.append(Span(doc, current_entity[0], current_entity[1], label=current_label))
-
-#     # Filter overlapping spans to keep only the longest ones
-#     doc.ents = filter_spans(spans)
-
-#     # Generate entity colors if not provided
-#     if entity_colors is None:
-#         entity_colors = generate_entity_colors(
-#             full_label_list=label_list,
-#             cmap_name=cmap_name,
-#             special_labels={subword_label: subword_color}
-#         )
-
-#     # Options for displaCy visualization
-#     options = {"colors": entity_colors}
-
-#     # Render the NER visualization as HTML
-#     html = displacy.render(doc, style="ent", jupyter=False, options=options)
-
-#     # Wrap the HTML in a styled container for better readability
-#     wrapped_html = f"""
-#     <div style="
-#         line-height: 1.6;
-#         max-width: 120ch;
-#         white-space: normal;
-#         word-wrap: break-word;
-#         font-family: 'Segoe UI', sans-serif;
-#     ">
-#         {html}
-#     </div>
-#     """
-#     # Display the HTML in a Jupyter Notebook or IPython environment
-#     display(HTML(wrapped_html))
-
-# def predict_and_display(text, model, tokenizer, label_list, entity_colors=None, cmap_name="Set2"):
-#     """
-#     Tokenizes input text, runs NER prediction using the model, and visualizes results using display_ner_html.
-    
-#     Args:
-#         text (str): Input sentence (whitespace-separated tokens).
-#         model: Hugging Face token classification model (e.g., DistilBERT).
-#         tokenizer: Corresponding tokenizer (must support `is_split_into_words=True`).
-#         label_list (List[str]): List of label names (indexed from model output).
-#         entity_colors (dict): Optional dict mapping labels to hex colors.
-#         cmap_name (str): Colormap to use if entity_colors is not provided.
-#     """
-#     words = text.split()
-#     inputs = tokenizer(words, return_tensors="pt", is_split_into_words=True).to(model.device)
-
-#     with torch.no_grad():
-#         outputs = model(**inputs)
-
-#     predictions = torch.argmax(outputs.logits, dim=2)[0].cpu().numpy()
-#     word_ids = inputs.word_ids(batch_index=0)
-
-#     # Align predictions to original words (mark subwords with -100)
-#     aligned_labels = []
-#     previous_word_idx = None
-#     for token_idx, word_idx in enumerate(word_ids):
-#         if word_idx is None or word_idx == previous_word_idx:
-#             aligned_labels.append(-100)
-#         else:
-#             aligned_labels.append(predictions[token_idx])
-#         previous_word_idx = word_idx
-
-#     # Generate default consistent colors if not provided
-#     if entity_colors is None:
-#         from collections import OrderedDict
-#         from matplotlib import pyplot as plt
-
-#         def generate_entity_colors(label_list, cmap_name="tab10", special_labels=None):
-#             cmap = plt.get_cmap(cmap_name)
-#             colors = {}
-#             if special_labels is None:
-#                 special_labels = {}
-#             for i, label in enumerate(sorted(label_list)):
-#                 if label == "O":
-#                     continue
-#                 rgba = cmap(i % cmap.N)
-#                 rgb = tuple(int(255 * x) for x in rgba[:3])
-#                 hex_color = '#{:02x}{:02x}{:02x}'.format(*rgb)
-#                 colors[label] = hex_color
-#             for label, hex_color in special_labels.items():
-#                 colors[label] = hex_color
-#             return colors
-
-#         entity_colors = generate_entity_colors(label_list, cmap_name=cmap_name, special_labels={"SUBWORD": "#cccccc"})
-
-#     # Visualize using your shared function
-#     display_ner_html(tokens=words, ner_tags=aligned_labels, label_list=label_list, entity_colors=entity_colors)
 
 
 def generate_entity_colors(full_label_list, cmap_name="Set2", special_labels=None):
@@ -225,7 +44,6 @@ def generate_entity_colors(full_label_list, cmap_name="Set2", special_labels=Non
         colors[label] = hex_color
 
     return colors
-
 
 def display_ner_html(tokens, ner_tags, label_list,
                      entity_colors=None, cmap_name="Set2",
@@ -346,6 +164,20 @@ def predict_ner_tags(text, model, tokenizer):
     return words, predicted_tag_ids
 
 def format_ner_eval_results(results):
+    """
+    Formats the evaluation results of a Named Entity Recognition (NER) model into a pandas DataFrame.
+    This function processes a dictionary of evaluation metrics, extracting entity-specific metrics
+    (precision, recall, F1-score, etc.) and overall metrics, and organizes them into a tabular format.
+    Args:
+        results (dict): A dictionary containing evaluation metrics. Keys should include entity-specific
+                        metrics prefixed with "eval_" (e.g., "eval_PERSON", "eval_ORG") and overall metrics
+                        such as "eval_overall_precision", "eval_overall_recall", "eval_overall_f1", and
+                        "eval_overall_accuracy".
+    Returns:
+        pandas.DataFrame: A DataFrame where each row corresponds to an entity's evaluation metrics, and
+                          an additional row summarizes the overall metrics. Columns include "Entity",
+                          "Precision", "Recall", "F1", and "Accuracy".
+    """
     entity_rows = []
     
     for key, value in results.items():
@@ -368,118 +200,226 @@ def format_ner_eval_results(results):
     df = pd.concat([df, pd.DataFrame([overall])], ignore_index=True)
     return df
 
-def clean_token(token):
-    """
-    Removes leading and trailing punctuation from a token.
-
-    This helps standardize words like "Obama," and "Obama." so they can match "Obama".
-
-    Args:
-        token (str): A word or token from the text.
-
-    Returns:
-        str: The cleaned token with punctuation stripped from both ends.
-    """
-    token = re.sub(r"’s|'s$", '', token)  # remove possessive endings
-    return re.sub(r'^\W+|\W+$', '', token)
-
-
-def match_entity_spans(predicted_json, tokens, fuzz_threshold=90):
-    """
-    Matches predicted entity phrases (from LLM) to spans in a tokenized sentence.
-
-    This function is used to compare LLM-predicted entity strings (like "Barack Obama")
-    to the original token list (e.g., ["Barack", "Obama", "met", "Hawaai"]).
-    
-    It finds all matching spans, even if:
-    - The original tokens have punctuation (like "Obama,")
-    - There's a small spelling difference (like "Hawaai" vs. "Hawaii")
-
-    Args:
-        predicted_json (dict): Dictionary of predicted entity types and text phrases.
-                               Example: {"PER": ["Barack Obama"], "LOC": ["Hawaii"]}
-        tokens (list of str): The list of tokens from the input text.
-        fuzz_threshold (int): Minimum similarity score (0–100) to consider a fuzzy match.
-                              Lower threshold = more forgiving.
-
-    Returns:
-        list of tuples: A list of matched entity spans in the format:
-                        (label, start_index, end_index)
-                        where the span is tokens[start_index:end_index].
-    """
-    spans = []
-
-    # Preprocess each token to remove punctuation and lowercase it
-    cleaned_tokens = [clean_token(t).lower() for t in tokens]
-
-    # Loop through each predicted label and its list of entity strings
-    for label, phrases in predicted_json.items():
-        for phrase in phrases:
-            # Clean and lowercase the predicted entity phrase
-            phrase_tokens = [clean_token(t).lower() for t in phrase.split()]
-            phrase_len = len(phrase_tokens)
-
-            # Slide over the token list to look for fuzzy matches
-            for i in range(len(tokens) - phrase_len + 1):
-                # Get a window of tokens the same length as the entity phrase
-                window = cleaned_tokens[i:i + phrase_len]
-
-                # Compare the cleaned window to the predicted phrase using fuzzy match
-                match_score = token_sort_ratio(' '.join(window), ' '.join(phrase_tokens))
-
-                # If the match is strong enough, save the span
-                if match_score >= fuzz_threshold:
-                    spans.append((label, i, i + phrase_len))
-
-    return spans
-
-def spans_to_bio_tags(tokens, spans, label_list):
-    """
-    Converts entity spans into BIO tag indices aligned to the given tokens.
-
-    Assumes the span labels already match the format in label_list
-    (e.g., "PER", "LOC") and constructs "B-XXX"/"I-XXX" tags as needed.
-
-    Args:
-        tokens (list of str): The list of tokens in the sentence.
-        spans (list of tuples): List of (label, start_idx, end_idx) tuples.
-                                Each label should match a base type in label_list
-                                (e.g., "PER", "LOC", "ORG", "MISC").
-        label_list (list of str): List of all valid BIO tag strings.
-                                  Example: ["O", "B-PER", "I-PER", "B-LOC", "I-LOC", ...]
-
-    Returns:
-        List[int]: A list of tag indices (integers) aligned to the tokens.
-    """
-    # Initialize all tags as "O"
-    bio_tags = ["O"] * len(tokens)
-
-    for label, start, end in spans:
-        if 0 <= start < end <= len(tokens):
-            bio_tags[start] = f"B-{label}"
-            for i in range(start + 1, end):
-                bio_tags[i] = f"I-{label}"
-        else:
-            raise ValueError(f"Invalid span indices: ({start}, {end}) for label '{label}'")
-
-    # Convert tag strings to indices using the label_list
-    tag_indices = []
-    for tag in bio_tags:
-        try:
-            tag_indices.append(label_list.index(tag))
-        except ValueError:
-            raise ValueError(f"Tag '{tag}' not found in label_list: {label_list}")
-
-    return tag_indices
-
-    return bio_tags
-
-
 def json_extractor(text):
-    # Extract the JSON object from the response
+    # Extract the JSON object from the LLM response
     try:
         text = text.strip("```json").strip("```").strip()
         json_object = json.loads(text)
     except json.JSONDecodeError:
         json_object = {"error": "Could not parse JSON"}
     return json_object
+
+def normalize(entity):
+    # Lowercase and remove punctuation including apostrophes
+    return re.sub(r"[^\w\s]", "", entity.lower()).strip()
+
+def fuzzy_match(pred_set, gold_set, threshold=90):
+    """
+    Perform fuzzy matching between two sets of strings and calculate true positives (TP), 
+    false positives (FP), and false negatives (FN) based on a similarity threshold.
+
+    This function uses a similarity ratio to determine matches between predicted and 
+    gold standard strings. A match is considered valid if the similarity ratio is 
+    greater than or equal to the specified threshold.
+
+    Args:
+        pred_set (set): A set of predicted strings.
+        gold_set (set): A set of gold standard (true) strings.
+        threshold (int, optional): The similarity threshold (0-100) for matching. 
+            Defaults to 90.
+
+    Returns:
+        tuple: A tuple containing:
+            - tp (int): The number of true positives (correct matches).
+            - fp (int): The number of false positives (incorrect predictions).
+            - fn (int): The number of false negatives (missed gold standard strings).
+
+    Note:
+        This function requires the `fuzz` module from the `rapidfuzz` library. 
+        For more details on `fuzz.ratio`, refer to the RapidFuzz documentation:
+        https://rapidfuzz.readthedocs.io/en/latest/Ratio.html
+    """
+    matched_gold = set()
+    tp = 0
+    for pred in pred_set:
+        for gold in gold_set:
+            if gold in matched_gold:
+                continue
+            if fuzz.ratio(pred, gold) >= threshold:
+                matched_gold.add(gold)
+                tp += 1
+                break
+    fp = len(pred_set) - tp
+    fn = len(gold_set) - tp
+    return tp, fp, fn
+
+
+def extract_gold_entities(example, labels_list):
+    """
+    Extracts named entities from a given example based on token-level NER tags.
+    This function processes a sequence of tokens and their corresponding NER tags
+    to identify and group named entities. It uses the BIO tagging scheme, where:
+      - "B-" indicates the beginning of an entity,
+      - "I-" indicates a continuation of the same entity,
+      - "O" indicates no entity.
+    
+    Args:
+        example (dict): A dictionary containing:
+            - "tokens" (list of str): The list of tokens in the input text.
+            - "ner_tags" (list of int): The list of NER tag indices corresponding to the tokens.
+        labels_list (list of str): A list mapping tag indices to their string labels (e.g., "B-PER", "I-LOC").
+
+    Returns:
+        dict: A dictionary where keys are entity types (e.g., "PER", "LOC") and values
+              are lists of entity strings extracted from the input.
+    Example:
+        Input:
+            example = {
+                "tokens": ["John", "Doe", "is", "from", "New", "York", "."],
+                "ner_tags": [1, 2, 0, 0, 3, 4, 0]
+            }
+            labels_list = ["O", "B-PER", "I-PER", "B-LOC", "I-LOC"]
+        Output:
+            {
+                "PER": ["John Doe"],
+                "LOC": ["New York"]
+            }
+    """
+
+    # Get the list of tokens and their corresponding tag indices
+    tokens = example["tokens"]
+    tags = example["ner_tags"]
+
+    # Dictionary to store final entity results (e.g., {"PER": ["John Doe"]})
+    entities = {}
+
+    # These track the current entity being built
+    current_entity = []   # A list of tokens that belong to the current entity
+    current_type = None   # The type of the current entity (e.g., "PER", "LOC")
+
+    # Go through each token and its corresponding tag index
+    for token, tag_idx in zip(tokens, tags):
+        tag = labels_list[tag_idx]  # Convert tag index to actual tag string, e.g., "B-PER"
+
+        if tag.startswith("B-"):
+            # Beginning of a new entity
+            # Save the previous entity, if we were building one
+            if current_entity:
+                entity_text = " ".join(current_entity)
+                if current_type in entities:
+                    entities[current_type].append(entity_text)
+                else:
+                    entities[current_type] = [entity_text]
+
+            # Start a new entity
+            current_entity = [token]
+            current_type = tag[2:]  # Extract the type, e.g., "PER" from "B-PER"
+
+        elif tag.startswith("I-") and current_type == tag[2:]:
+            # Continuation of the current entity (same type)
+            current_entity.append(token)
+
+        else:
+            # Either an "O" tag or a mismatched "I-" tag
+            # If we were building an entity, save it
+            if current_entity:
+                entity_text = " ".join(current_entity)
+                if current_type in entities:
+                    entities[current_type].append(entity_text)
+                else:
+                    entities[current_type] = [entity_text]
+
+            # Reset — not currently building an entity
+            current_entity = []
+            current_type = None
+
+    # If there is an entity left at the end, save it
+    if current_entity:
+        entity_text = " ".join(current_entity)
+        if current_type in entities:
+            entities[current_type].append(entity_text)
+        else:
+            entities[current_type] = [entity_text]
+
+    return entities
+
+def evaluate_ner(pred_dicts, gold_dicts, labels=["PER", "LOC", "ORG", "MISC"], threshold=0.9):
+    """
+    Evaluate named entity recognition (NER) predictions using fuzzy string matching.
+
+    This function compares predicted entity strings to gold (true) entity strings
+    by entity type (e.g., PER, LOC, ORG) and computes precision, recall, F1 score,
+    and accuracy using fuzzy matching.
+
+    Args:
+        pred_dicts (list of dict): A list of model predictions where each dict maps
+                                   entity types (e.g., "PER") to lists of entity strings.
+        gold_dicts (list of dict): A list of ground truth annotations in the same format.
+        labels (list of str): The entity types to evaluate (default = ["PER", "LOC", "ORG", "MISC"]).
+        threshold (float): Similarity threshold for fuzzy matching (0.0 to 1.0). Default is 0.9.
+
+    Returns:
+        dict: A dictionary of evaluation metrics for each entity type and overall, with keys like:
+              "eval_PER", "eval_LOC", ..., "eval_overall_precision", "eval_overall_accuracy", etc.
+    """
+
+    # Count true positives, false positives, and false negatives per entity type
+    tp_counts = Counter()
+    fp_counts = Counter()
+    fn_counts = Counter()
+
+    # Compare predictions and gold labels sentence by sentence
+    for pred, gold in zip(pred_dicts, gold_dicts):
+        for label in labels:
+            # Normalize and collect predicted and gold entities for this label
+            pred_set = {normalize(e) for e in pred.get(label, [])}
+            gold_set = {normalize(e) for e in gold.get(label, [])}
+
+            # Use fuzzy matching to count TP, FP, and FN
+            tp, fp, fn = fuzzy_match(pred_set, gold_set, threshold=threshold * 100)
+
+            # Accumulate totals for this label
+            tp_counts[label] += tp
+            fp_counts[label] += fp
+            fn_counts[label] += fn
+
+    # Store final metric results
+    results = {}
+    total_tp = total_fp = total_fn = 0
+
+    for label in labels:
+        # Retrieve counts for this entity type
+        tp, fp, fn = tp_counts[label], fp_counts[label], fn_counts[label]
+
+        # Update overall totals
+        total_tp += tp
+        total_fp += fp
+        total_fn += fn
+
+        # Calculate precision, recall, F1 for this label
+        precision = tp / (tp + fp) if (tp + fp) else 0.0
+        recall = tp / (tp + fn) if (tp + fn) else 0.0
+        f1 = 2 * precision * recall / (precision + recall) if (precision + recall) else 0.0
+
+        # Store in results under key like "eval_PER"
+        results[f"eval_{label}"] = {
+            "precision": precision,
+            "recall": recall,
+            "f1": f1,
+            "number": tp + fn  # total number of gold entities for this type
+        }
+
+    # Compute overall (micro-averaged) metrics across all entity types
+    overall_precision = total_tp / (total_tp + total_fp) if (total_tp + total_fp) else 0.0
+    overall_recall = total_tp / (total_tp + total_fn) if (total_tp + total_fn) else 0.0
+    overall_f1 = 2 * overall_precision * overall_recall / (overall_precision + overall_recall) if (overall_precision + overall_recall) else 0.0
+    overall_accuracy = total_tp / (total_tp + total_fp + total_fn) if (total_tp + total_fp + total_fn) else 0.0
+
+    # Add overall scores to results
+    results["eval_overall_precision"] = overall_precision
+    results["eval_overall_recall"] = overall_recall
+    results["eval_overall_f1"] = overall_f1
+    results["eval_overall_accuracy"] = overall_accuracy
+
+    return results
+
