@@ -104,19 +104,22 @@ class ModelConfig:
         self.model_str = model_str
         self.model = model
         self.tokenizer = tokenizer
-        self.api_type = api_type  # Expected values: "openai", "gemini", "together", "groq" or None
+        self.api_type = api_type  # Expected values: "openai", "gemini", "together", "groq", "openrouter" or None
         self.client = None
         self.cost_per_M_input = cost_per_M_input
         self.cost_per_M_output = cost_per_M_output
 
         # Initialize API client if applicable.
-        if api_type in ["openai", "gemini", "together", "groq"]:
+        if api_type in ["openai", "gemini", "together", "groq", "openrouter"]:
             if api_type == "together":
                 api_key = os.getenv("TOGETHER_API_KEY")
                 base_url = "https://api.together.xyz/v1"
             elif api_type == "groq":
                 api_key = os.getenv("GROQ_API_KEY")
                 base_url = "https://api.groq.com/openai/v1"
+            elif api_type == "openrouter":
+                api_key = os.getenv("OPENROUTER_API_KEY")   
+                base_url = "https://openrouter.ai/api/v1"
             else:
                 api_key = os.getenv("GEMINI_API_KEY" if api_type == "gemini" else "OPENAI_API_KEY")
                 base_url = "https://generativelanguage.googleapis.com/v1beta/openai/" if api_type == "gemini" else None
@@ -138,7 +141,7 @@ def llm_configure(model_str, cost_per_M_input=None, cost_per_M_output=None,
         using that API is returned.
       - Otherwise, a local Hugging Face model is loaded (with caching).
     
-    If llm_provider is provided, it must be one of "openai", "gemini", "together", or "groq",
+    If llm_provider is provided, it must be one of "openai", "gemini", "together", "groq", or "openrouter",
     and the corresponding API is used regardless of the model name.
     
     Parameters:
@@ -152,7 +155,7 @@ def llm_configure(model_str, cost_per_M_input=None, cost_per_M_output=None,
       ModelConfig: The configuration object with model, tokenizer, and API client settings.
     """
     model_str = model_str.strip()
-    valid_api_providers = ["openai", "gemini", "together", "groq"]
+    valid_api_providers = ["openai", "gemini", "together", "groq", "openrouter"]
     
     # Expand short names.
     if model_str in SHORT_NAME_MAP:
@@ -161,7 +164,7 @@ def llm_configure(model_str, cost_per_M_input=None, cost_per_M_output=None,
     # If llm_provider is provided, use that API regardless of model_str.
     if llm_provider is not None:
         if llm_provider.lower() not in valid_api_providers:
-            raise ValueError("llm_provider must be either None or one of 'openai', 'gemini', 'together', or 'groq'")
+            raise ValueError("llm_provider must be either None or one of 'openai', 'gemini', 'together', 'groq', or 'openrouter'.")
         return ModelConfig(model_str, api_type=llm_provider.lower(),
                            cost_per_M_input=cost_per_M_input, cost_per_M_output=cost_per_M_output)
     
@@ -277,70 +280,6 @@ def clean_response(response, prompt=None, cleaning_mode="generic", split_string=
     response = re.sub(r"^\s*assistant\s*", "", response, flags=re.IGNORECASE).strip()
     response = "\n".join([line for line in response.split("\n") if line.strip()])
     return response
-
-'''
-def clean_response(response, prompt=None, cleaning_mode="generic"):
-    """
-    Cleans the response by removing the input prompt, an 'assistant' label,
-    and any extraneous blank lines.
-    
-    In generic mode, the original cleaning behavior is applied.
-    In Qwen mode, the function looks for the last 10 characters of the prompt as a marker
-    (to account for potential formatting changes) and removes all text up to and including
-    the line that immediately follows that marker.
-    """
-    if cleaning_mode == "qwen" and prompt:
-        # Use only the last 10 characters of the prompt as the marker.
-        marker = prompt[-10:]
-        pos = response.find(marker)
-        if pos != -1:
-            # Find the end of the line containing the marker.
-            end_line = response.find("\n", pos)
-            if end_line != -1:
-                # Remove up to and including the next line.
-                next_line_end = response.find("\n", end_line + 1)
-                if next_line_end != -1:
-                    response = response[next_line_end+1:].strip()
-                else:
-                    response = response[end_line+1:].strip()
-            else:
-                response = response[pos+len(marker):].strip()
-        else:
-            # Fallback: if the marker isn't found, remove the first line.
-            lines = response.splitlines()
-            if len(lines) > 1:
-                response = "\n".join(lines[1:]).strip()
-            else:
-                response = response.strip()
-    else:
-        if prompt:
-            # --- Original prompt removal logic ---
-            prompt_marker_pattern = re.escape(prompt) + r"\s*\.\s*assistant"
-            match = re.search(prompt_marker_pattern, response)
-            if match:
-                response = response[match.end():].strip()
-            else:
-                match = re.search(re.escape(prompt), response)
-                if match:
-                    response = response[match.end():].strip()
-
-            # --- Additional marker removal ---
-            extra_marker = prompt[-10:] + "assistant"
-            pattern = ""
-            for char in extra_marker:
-                if char.isspace():
-                    pattern += r"\s+"
-                else:
-                    pattern += re.escape(char) + r"\s*"
-            match = re.search(pattern, response, flags=re.IGNORECASE)
-            if match:
-                response = response[match.end():].strip()
-    
-    # Finally, remove any lines that consist solely of the word "assistant" (ignoring case).
-    response = re.sub(r"^\s*assistant\s*", "", response, flags=re.IGNORECASE).strip()
-    response = "\n".join([line for line in response.split("\n") if line.strip()])
-    return response
-'''
 
 def configure_gen_kwargs(strategy, top_k, top_p, num_beams, temperature, max_new_tokens):
     """
@@ -503,7 +442,7 @@ def llm_generate(model_config, prompts,
     if len(prompt_list) == 1:
         disable_tqdm = True
     
-    if model_config.api_type in ["openai", "gemini", "together", "groq"]:
+    if model_config.api_type in ["openai", "gemini", "together", "groq", "openrouter"]:
         try:
             responses = generate_api_text(model_config, prompt_list, system_prompt, assistant_prompt,
                                           search_strategy, max_new_tokens, temperature, top_p,
