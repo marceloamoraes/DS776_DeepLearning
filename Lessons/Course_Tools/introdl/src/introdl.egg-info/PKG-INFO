@@ -4,8 +4,10 @@ Version: 1.0
 Summary: Introductory Deep Learning Package
 Author-email: Your Name <you@example.com>
 Requires-Dist: accelerate
+Requires-Dist: bert_score
 Requires-Dist: bertviz
 Requires-Dist: bitsandbytes>=0.45.3
+Requires-Dist: bleurt
 Requires-Dist: datasets
 Requires-Dist: evaluate
 Requires-Dist: gliner
@@ -28,6 +30,8 @@ Requires-Dist: segmentation_models_pytorch
 Requires-Dist: seqeval
 Requires-Dist: spacy
 Requires-Dist: timm
+Requires-Dist: tensorflow
+Requires-Dist: tensorflow-gpu
 Requires-Dist: torch
 Requires-Dist: torchinfo
 Requires-Dist: torchmetrics

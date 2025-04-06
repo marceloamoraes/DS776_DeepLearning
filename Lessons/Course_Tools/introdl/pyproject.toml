@@ -11,11 +11,11 @@ authors = [
 ]
 dependencies = [
     "accelerate",
+    "bert_score",
     "bertviz",
     "bitsandbytes>=0.45.3",
     "datasets",
     "evaluate",
-    "gliner",
     "google-genai",
     "IPython",
     "ipywidgets",
@@ -40,7 +40,7 @@ dependencies = [
     "torchmetrics",
     "torchvision",
     "tqdm",
-    "transformers>=4.40.9",
+    "transformers>=4.49.0",
     "ultralytics"
 ]
 

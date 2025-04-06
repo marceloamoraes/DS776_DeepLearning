@@ -1,6 +1,8 @@
 accelerate
+bert_score
 bertviz
 bitsandbytes>=0.45.3
+bleurt
 datasets
 evaluate
 gliner
@@ -23,6 +25,8 @@ segmentation_models_pytorch
 seqeval
 spacy
 timm
+tensorflow
+tensorflow-gpu
 torch
 torchinfo
 torchmetrics
