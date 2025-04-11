@@ -20,6 +20,7 @@ import warnings
 import shutil
 from IPython.display import display, IFrame
 from IPython.core.display import HTML
+import gc
 
 try:
     import dotenv
@@ -135,6 +136,17 @@ def get_device():
         return torch.device('mps')
     else:
         return torch.device('cpu')
+    
+def cleanup_torch(*objects):
+    """Delete objects, clear CUDA cache, and run garbage collection."""
+    for obj in objects:
+        try:
+            del obj
+        except:
+            pass
+    torch.cuda.empty_cache()
+    gc.collect()
+
 
 def hf_download(checkpoint_file, repo_id, token=None):
     """

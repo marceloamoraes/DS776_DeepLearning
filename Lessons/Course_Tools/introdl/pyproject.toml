@@ -11,6 +11,7 @@ authors = [
 ]
 dependencies = [
     "accelerate",
+    "bartscore",
     "bert_score",
     "bertviz",
     "bitsandbytes>=0.45.3",
@@ -28,6 +29,7 @@ dependencies = [
     "protobuf",
     "pyperclip",
     "rapidfuzz",
+    "rouge_score",
     "scikit-learn",
     "scipy",
     "seaborn",

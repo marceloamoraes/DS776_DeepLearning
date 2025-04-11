@@ -2,10 +2,8 @@ accelerate
 bert_score
 bertviz
 bitsandbytes>=0.45.3
-bleurt
 datasets
 evaluate
-gliner
 google-genai
 IPython
 ipywidgets
@@ -18,6 +16,7 @@ pandas
 protobuf
 pyperclip
 rapidfuzz
+rouge_score
 scikit-learn
 scipy
 seaborn
@@ -25,12 +24,10 @@ segmentation_models_pytorch
 seqeval
 spacy
 timm
-tensorflow
-tensorflow-gpu
 torch
 torchinfo
 torchmetrics
 torchvision
 tqdm
-transformers>=4.40.9
+transformers>=4.49.0
 ultralytics
