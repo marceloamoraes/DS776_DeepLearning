@@ -71,8 +71,9 @@ def config_paths_keys(env_path="~/Lessons/Course_Tools/local.env", api_keys_env=
         env_file = Path("~/Lessons/Course_Tools/cocalc.env").expanduser()
     elif environment == "colab":
         env_file = Path("~/Lessons/Course_Tools/colab.env").expanduser()
-    else:
-        env_file = Path(env_path).expanduser()
+    else: # hack for working in GCP instance with PyTorch image instead or Hyperstack
+        #env_file = Path(env_path).expanduser()
+        env_file = Path("~/Lessons/Course_Tools/colab.env").expanduser()
 
     # Load the environment variables from the determined .env file
     load_dotenv(env_file, override=False)
@@ -85,27 +86,30 @@ def config_paths_keys(env_path="~/Lessons/Course_Tools/local.env", api_keys_env=
     # Retrieve and expand paths
     models_path = Path(os.getenv('MODELS_PATH', "")).expanduser()
     data_path = Path(os.getenv('DATA_PATH', "")).expanduser()
+    cache_path = Path(os.getenv('CACHE_PATH', "")).expanduser()
     torch_home = Path(os.getenv('TORCH_HOME', "")).expanduser()
     hf_home = Path(os.getenv('HF_HOME', "")).expanduser()
 
     # Set environment variables to expanded paths
     os.environ['MODELS_PATH'] = str(models_path)
     os.environ['DATA_PATH'] = str(data_path)
-    os.environ['TORCH_HOME'] = str(torch_home)
-    os.environ['HF_HOME'] = str(hf_home)
-    os.environ['HF_HUB_CACHE'] = str(hf_home)
+    os.environ['CACHE_PATH'] = str(cache_path)
+    os.environ['TORCH_HOME'] = str(cache_path)
+    os.environ['HF_HOME'] = str(cache_path)
+    os.environ['HF_DATASETS_CACHE'] = str(data_path)
 
     # Create directories if they don't exist
-    for path in [models_path, data_path, torch_home, hf_home]:
+    for path in [models_path, data_path, cache_path, torch_home, hf_home]:
         if not path.exists():
             path.mkdir(parents=True, exist_ok=True)
 
     # Ensure paths are set
     print(f"MODELS_PATH={models_path}")
     print(f"DATA_PATH={data_path}")
+    print(f"CACHE_PATH={cache_path}")
     print(f"TORCH_HOME={torch_home}")
     print(f"HF_HOME={hf_home}")
-    print(f"HF_HUB_CACHE={hf_home}")
+    print(f"HF_DATASETS_CACHE={os.getenv('HF_DATASETS_CACHE')}")
 
     # Login to Hugging Face if token is set
     if os.getenv('HF_TOKEN'):
@@ -123,7 +127,8 @@ def config_paths_keys(env_path="~/Lessons/Course_Tools/local.env", api_keys_env=
 
     return {
         'MODELS_PATH': models_path,
-        'DATA_PATH': data_path
+        'DATA_PATH': data_path,
+        'CACHE_PATH': cache_path
     }
 
 def get_device():
