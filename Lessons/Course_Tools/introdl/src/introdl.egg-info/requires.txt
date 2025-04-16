@@ -3,6 +3,7 @@ bert_score
 bertviz
 bitsandbytes>=0.45.3
 datasets
+dotenv
 evaluate
 google-genai
 IPython
@@ -10,6 +11,8 @@ ipywidgets
 ipycanvas
 kagglehub
 matplotlib
+nbformat
+nbconvert
 numpy
 openai>=1.65.5
 pandas

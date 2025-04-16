@@ -8,6 +8,7 @@ Requires-Dist: bert_score
 Requires-Dist: bertviz
 Requires-Dist: bitsandbytes>=0.45.3
 Requires-Dist: datasets
+Requires-Dist: dotenv
 Requires-Dist: evaluate
 Requires-Dist: google-genai
 Requires-Dist: IPython
@@ -15,6 +16,8 @@ Requires-Dist: ipywidgets
 Requires-Dist: ipycanvas
 Requires-Dist: kagglehub
 Requires-Dist: matplotlib
+Requires-Dist: nbformat
+Requires-Dist: nbconvert
 Requires-Dist: numpy
 Requires-Dist: openai>=1.65.5
 Requires-Dist: pandas

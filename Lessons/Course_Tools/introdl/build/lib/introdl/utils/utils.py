@@ -21,6 +21,21 @@ import shutil
 from IPython.display import display, IFrame
 from IPython.core.display import HTML
 import gc
+import nbformat
+import nbformat
+from nbformat import validate
+from nbformat.validator import NotebookValidationError
+import subprocess
+import tempfile
+import shutil
+import inspect
+
+# Fallback-safe normalize import
+try:
+    from nbformat.normalized import normalize
+except ImportError:
+    def normalize(nb): return nb  # no-op if normalize not available
+
 
 try:
     import dotenv
@@ -481,3 +496,90 @@ def wrap_print_text(original_print, width=80):
         return original_print(wrapped_text, **kwargs)
 
     return wrapped_func
+
+def _guess_notebook_path():
+    """
+    Guess the current notebook path by looking for the most recently modified .ipynb file in the working dir.
+    """
+    cwd = Path.cwd()
+    candidates = sorted(cwd.glob("*.ipynb"), key=os.path.getmtime, reverse=True)
+    if not candidates:
+        raise RuntimeError("No .ipynb files found in the current directory.")
+    print(f"[INFO] Using notebook: {candidates[0].name}")
+    return candidates[0]
+
+def _clean_invalid_outputs(notebook_path):
+    with open(notebook_path, "r", encoding="utf-8") as f:
+        nb = nbformat.read(f, as_version=4)
+
+    for i, cell in enumerate(nb.cells):
+        if cell.cell_type != "code":
+            continue
+
+        new_outputs = []
+        for j, output in enumerate(cell.get("outputs", [])):
+            fake_nb = {
+                "cells": [{
+                    "cell_type": "code",
+                    "metadata": {},
+                    "execution_count": 1,
+                    "outputs": [output],
+                    "source": "",
+                    "id": f"cell-{i}-{j}"
+                }],
+                "metadata": {},
+                "nbformat": 4,
+                "nbformat_minor": 5
+            }
+            try:
+                normalize(fake_nb)
+                validate(fake_nb, relax_add_props=True)
+                new_outputs.append(output)
+            except NotebookValidationError:
+                print(f"[WARN] Removed invalid output from cell {i}, output {j}")
+
+        cell["outputs"] = new_outputs
+
+    normalize(nb)
+
+    with open(notebook_path, "w", encoding="utf-8") as f:
+        nbformat.write(nb, f)
+
+def convert_nb_to_html(output_filename="converted.html", notebook_path=None):
+    """
+    Convert a notebook to HTML using the JupyterLab template.
+    If notebook_path is None, uses the most recent .ipynb file in the current directory.
+    Output will be written to current directory with the given output_filename.
+    """
+    output_filename = str(output_filename)
+    if not output_filename.endswith(".html"):
+        output_filename += ".html"
+
+    if notebook_path is None:
+        notebook_path = _guess_notebook_path()
+
+    notebook_path = Path(notebook_path).resolve()
+    output_path = Path.cwd() / output_filename
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_path = Path(tmpdir) / notebook_path.name
+        shutil.copy2(notebook_path, tmp_path)
+        print(f"[INFO] Temporary copy created: {tmp_path}")
+
+        _clean_invalid_outputs(tmp_path)
+
+        try:
+            subprocess.run(
+                [
+                    "jupyter", "nbconvert",
+                    "--to", "html",
+                    "--template", "lab",
+                    "--output", output_path.stem,
+                    "--output-dir", str(output_path.parent),
+                    str(tmp_path)
+                ],
+                check=True
+            )
+            print(f"[SUCCESS] HTML export complete: {output_path}")
+        except subprocess.CalledProcessError as e:
+            print("[ERROR] Conversion failed:", e)

@@ -23,6 +23,8 @@ dependencies = [
     "ipycanvas",
     "kagglehub",
     "matplotlib",
+    "nbformat",
+    "nbconvert",
     "numpy",
     "openai>=1.65.5",
     "pandas",

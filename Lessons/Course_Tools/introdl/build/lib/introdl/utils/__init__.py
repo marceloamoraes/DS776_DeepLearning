@@ -8,6 +8,7 @@ from .utils import classifier_predict
 from .utils import wrap_print_text
 from .utils import config_paths_keys
 from .utils import cleanup_torch
+from .utils import convert_nb_to_html
 
 __all__ = [
     "detect_jupyter_environment",
@@ -19,5 +20,6 @@ __all__ = [
     "classifer_predict",
     "wrap_print_text",
     "config_paths_keys",
-    "cleanup_torch",   
+    "cleanup_torch",  
+    "convert_nb_to_html", 
 ]
