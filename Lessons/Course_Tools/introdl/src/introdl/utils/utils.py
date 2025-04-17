@@ -57,6 +57,8 @@ def detect_jupyter_environment():
         return "vscode"
     elif 'COCALC_CODE_PORT' in os.environ:
         return "cocalc"
+    elif 'PAPERSPACE_NOTEBOOK_ID' in os.environ:
+        return "paperspace"
     elif 'JPY_PARENT_PID' in os.environ:
         return "jupyterlab"
     else:
@@ -86,9 +88,13 @@ def config_paths_keys(env_path="~/Lessons/Course_Tools/local.env", api_keys_env=
         env_file = Path("~/Lessons/Course_Tools/cocalc.env").expanduser()
     elif environment == "colab":
         env_file = Path("~/Lessons/Course_Tools/colab.env").expanduser()
+    elif environment == "paperspace":
+        env_file = Path("/notebooks/DS776/Lessons/Course_Tools/paperspace.env")
+        api_keys_env = Path("/notebooks/DS776/Lessons/Course_Tools/api_keys.env")
     else: # hack for working in GCP instance with PyTorch image instead or Hyperstack
         #env_file = Path(env_path).expanduser()
         env_file = Path("~/Lessons/Course_Tools/colab.env").expanduser()
+
 
     # Load the environment variables from the determined .env file
     load_dotenv(env_file, override=False)
