@@ -891,11 +891,12 @@ def convert_nb_to_html(output_filename="converted.html", notebook_path=None, tem
         template (str): nbconvert template to use ("lab" or "classic"). Defaults to "lab".
 
     Notes:
-        - Strips problematic output metadata like Colab's 'errorDetails'.
-        - Writes final HTML to the given path (Drive-safe).
+        - Cleans up Colab-specific metadata (e.g., 'errorDetails') and broken widget metadata.
+        - Automatically falls back to 'classic' template if 'lab' fails.
+        - Final HTML is written to output_filename (supports Google Drive paths).
     """
 
-    # If no notebook path is given, use the most recently modified .ipynb in current working directory
+    # If no notebook path is given, use most recent .ipynb in current directory
     if notebook_path is None:
         candidates = list(Path.cwd().glob("*.ipynb"))
         if not candidates:
@@ -915,24 +916,30 @@ def convert_nb_to_html(output_filename="converted.html", notebook_path=None, tem
         shutil.copy2(notebook_path, tmp_path)
         print(f"[INFO] Temporary copy created: {tmp_path}")
 
-        # 🧼 Clean errorDetails and other problematic output metadata
+        # 🧼 Clean Colab errorDetails and invalid widget metadata
         try:
             nb = nbformat.read(tmp_path, as_version=4)
             for cell in nb.cells:
                 if "outputs" in cell:
                     for output in cell["outputs"]:
-                        if isinstance(output, dict) and "errorDetails" in output:
-                            del output["errorDetails"]
+                        if isinstance(output, dict):
+                            if "errorDetails" in output:
+                                del output["errorDetails"]
+                            # Remove broken widget views that trigger KeyError
+                            if "data" in output and "application/vnd.jupyter.widget-view+json" in output["data"]:
+                                output["data"].pop("application/vnd.jupyter.widget-view+json", None)
+            if "metadata" in nb and "widgets" in nb["metadata"]:
+                del nb["metadata"]["widgets"]
             nbformat.write(nb, tmp_path)
         except Exception as e:
-            print(f"[WARNING] Failed to clean errorDetails metadata: {e}")
+            print(f"[WARNING] Failed to clean notebook metadata: {e}")
 
-        try:
-            result = subprocess.run(
+        def run_nbconvert(tmpl):
+            return subprocess.run(
                 [
                     "jupyter", "nbconvert",
                     "--to", "html",
-                    "--template", template,
+                    "--template", tmpl,
                     "--output", output_name,
                     "--output-dir", str(output_dir),
                     str(tmp_path)
@@ -942,9 +949,13 @@ def convert_nb_to_html(output_filename="converted.html", notebook_path=None, tem
                 text=True
             )
 
-            if result.returncode != 0:
-                print("[ERROR] nbconvert failed:\n", result.stderr)
-            else:
-                print(f"[SUCCESS] HTML export complete: {output_dir / output_filename.name}")
-        except Exception as e:
-            print(f"[ERROR] Conversion exception: {e}")
+        # 🧪 Try nbconvert with the specified template, fallback to classic if it fails
+        result = run_nbconvert(template)
+        if result.returncode != 0:
+            print(f"[WARNING] nbconvert with template '{template}' failed. Retrying with 'classic'...")
+            result = run_nbconvert("classic")
+
+        if result.returncode == 0:
+            print(f"[SUCCESS] HTML export complete: {output_dir / output_filename.name}")
+        else:
+            print("[ERROR] nbconvert failed:\n", result.stderr)
