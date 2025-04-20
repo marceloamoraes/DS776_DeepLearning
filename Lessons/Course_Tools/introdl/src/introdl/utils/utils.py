@@ -880,6 +880,7 @@ def _clean_invalid_outputs(notebook_path):
 #         except subprocess.CalledProcessError as e:
 #             print("[ERROR] Conversion failed:", e)
 
+
 def convert_nb_to_html(output_filename="converted.html", notebook_path=None, template="lab"):
     """
     Convert a notebook to HTML using the specified nbconvert template.
@@ -890,8 +891,8 @@ def convert_nb_to_html(output_filename="converted.html", notebook_path=None, tem
         template (str): nbconvert template to use ("lab" or "classic"). Defaults to "lab".
 
     Notes:
-        - Writes output to specified location, including Google Drive if mounted.
-        - Uses /tmp for intermediate files.
+        - Strips problematic output metadata like Colab's 'errorDetails'.
+        - Writes final HTML to the given path (Drive-safe).
     """
 
     # If no notebook path is given, use the most recently modified .ipynb in current working directory
@@ -913,6 +914,18 @@ def convert_nb_to_html(output_filename="converted.html", notebook_path=None, tem
         tmp_path = Path(tmpdir) / notebook_path.name
         shutil.copy2(notebook_path, tmp_path)
         print(f"[INFO] Temporary copy created: {tmp_path}")
+
+        # 🧼 Clean errorDetails and other problematic output metadata
+        try:
+            nb = nbformat.read(tmp_path, as_version=4)
+            for cell in nb.cells:
+                if "outputs" in cell:
+                    for output in cell["outputs"]:
+                        if isinstance(output, dict) and "errorDetails" in output:
+                            del output["errorDetails"]
+            nbformat.write(nb, tmp_path)
+        except Exception as e:
+            print(f"[WARNING] Failed to clean errorDetails metadata: {e}")
 
         try:
             result = subprocess.run(
