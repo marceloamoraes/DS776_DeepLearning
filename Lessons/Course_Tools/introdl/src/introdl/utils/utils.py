@@ -50,19 +50,46 @@ finally:
 # Utility Functions
 ###########################################################
 
+import os
+import sys
+from pathlib import Path
+
 def detect_jupyter_environment():
+    """
+    Detects the Jupyter environment and returns one of:
+    - "colab": Running in official Google Colab
+    - "vscode": Running in VSCode
+    - "cocalc": Running inside the CoCalc frontend
+    - "cocalc_compute_server": Running on a compute server (e.g., GCP or Hyperstack) launched from CoCalc
+    - "paperspace": Running in a Paperspace notebook
+    - "unknown": Environment not recognized
+    """
+
+    # Check for official Google Colab
     if 'google.colab' in sys.modules:
-        return "colab"
-    elif 'VSCODE_PID' in os.environ:
+        if 'COLAB_RELEASE_TAG' in os.environ or 'COLAB_GPU' in os.environ:
+            return "colab"
+
+    # Check for VSCode
+    if 'VSCODE_PID' in os.environ:
         return "vscode"
-    elif 'COCALC_CODE_PORT' in os.environ:
-        return "cocalc"
-    elif 'PAPERSPACE_NOTEBOOK_ID' in os.environ:
+
+    # Check for Paperspace
+    if 'PAPERSPACE_NOTEBOOK_ID' in os.environ:
         return "paperspace"
-    elif 'JPY_PARENT_PID' in os.environ:
-        return "jupyterlab"
-    else:
-        return "Unknown"
+
+    # Check for CoCalc frontend (browser UI)
+    if 'COCALC_CODE_PORT' in os.environ:
+        return "cocalc"
+
+    # Check for CoCalc Compute Server (GCP or Hyperstack)
+    # CoCalc compute servers do NOT set COCALC_CODE_PORT, but do provision ~/cs_workspace
+    if Path.home().joinpath("cs_workspace").exists():
+        return "cocalc_compute_server"
+
+    # Fallback
+    return "unknown"
+
 
 def config_paths_keys(env_path="~/Lessons/Course_Tools/local.env", api_keys_env="~/Lessons/Course_Tools/api_keys.env"):
     """
@@ -81,28 +108,58 @@ def config_paths_keys(env_path="~/Lessons/Course_Tools/local.env", api_keys_env=
     Returns:
         dict: A dictionary with keys 'MODELS_PATH' and 'DATA_PATH'.
     """
+
     # Determine the environment
-    ## this doesn't work in GCP instance with PyTorch image instead
     environment = detect_jupyter_environment()
-    if environment == "cocalc":
-        env_file = Path("~/Lessons/Course_Tools/cocalc.env").expanduser()
-    elif environment == "colab":
-        env_file = Path("~/Lessons/Course_Tools/colab.env").expanduser()
-    elif environment == "paperspace":
-        env_file = Path("/notebooks/DS776/Lessons/Course_Tools/paperspace.env")
-        api_keys_env = Path("/notebooks/DS776/Lessons/Course_Tools/api_keys.env")
-    else: # hack for working in GCP instance with PyTorch image instead or Hyperstack
-        #env_file = Path(env_path).expanduser()
-        env_file = Path("~/Lessons/Course_Tools/colab.env").expanduser()
 
+    # First, check if ~/local.env exists and use it if available
+    home_local_env = Path.home() / "local.env"
 
-    # Load the environment variables from the determined .env file
-    load_dotenv(env_file, override=False)
+    if home_local_env.exists():
+        env_file = home_local_env
+    else:
+        # If env_path is provided explicitly, use it
+        if env_path is not None:
+            env_file = Path(env_path).expanduser()
+        else:
+            # Choose a default env file based on the environment
+            if environment == "cocalc_compute_server":
+                env_file = Path("~/Lessons/Course_Tools/cocalc_compute_server.env").expanduser()
+            elif environment == "cocalc":
+                env_file = Path("~/Lessons/Course_Tools/cocalc.env").expanduser()
+            elif environment == "colab":
+                env_file = Path("~/Lessons/Course_Tools/google_colab.env").expanduser()
+            else:  # fallback
+                env_file = Path("~/Lessons/Course_Tools/local.env").expanduser()
 
-    # Load API keys if not already set
-    if not os.getenv('HF_TOKEN') or not os.getenv('OPENAI_API_KEY') or not os.getenv('GEMINI_API_KEY'):
-        api_keys_file = Path(api_keys_env).expanduser()
+    # Load the environment variables
+    if env_file.exists():
+        load_dotenv(env_file, override=False)
+        print(f"Loaded environment variables from: {env_file}")
+    else:
+        print(f"Warning: environment file not found at {env_file}.  Pass path to env_path to load a different file.")
+
+    # Resolve path to ~/api_keys.env
+    home_api_keys_file = Path.home() / "api_keys.env"
+
+    # Determine which file to load
+    if home_api_keys_file.exists():
+        api_keys_file = home_api_keys_file
+    else:
+        if api_keys_env is not None:
+            api_keys_file = Path(api_keys_env).expanduser()
+        else:
+            if environment != "colab":
+                api_keys_file = Path("~/Lessons/Course_Tools/api_keys.env").expanduser()
+            else:
+                api_keys_file = Path("/content/drive/MyDrive/Colab Notebooks/api_keys.env")
+
+    # Load the API keys from the selected file
+    if api_keys_file.exists():
         load_dotenv(api_keys_file, override=False)
+        print(f"Loaded API keys from: {api_keys_file}")
+    else:
+        print(f"Warning: API keys file not found at {api_keys_file}. Pass path to api_keys_env to load a different file.")
 
     # Retrieve and expand paths
     models_path = Path(os.getenv('MODELS_PATH', "")).expanduser()
@@ -145,7 +202,7 @@ def config_paths_keys(env_path="~/Lessons/Course_Tools/local.env", api_keys_env=
     else:
         print("Set HF_TOKEN in api_keys.env or in environment to login to HuggingFace Hub")
         print("Most things should work without logging in, but some features may be limited.")
-
+    
     return {
         'MODELS_PATH': models_path,
         'DATA_PATH': data_path,
