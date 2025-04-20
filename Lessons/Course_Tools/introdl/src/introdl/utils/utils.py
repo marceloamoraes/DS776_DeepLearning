@@ -209,6 +209,116 @@ def detect_jupyter_environment():
 #         'CACHE_PATH': cache_path
 #     }
 
+# def config_paths_keys(env_path="~/Lessons/Course_Tools/local.env", api_keys_env="~/Lessons/Course_Tools/api_keys.env"):
+#     """
+#     Reads environment variables and sets paths.
+
+#     If running in Colab, sets hardcoded /content/temp_workspace paths.
+#     Otherwise uses dotenv to load based on environment:
+#     - CoCalc: ~/Lessons/Course_Tools/cocalc.env
+#     - Local: ~/Lessons/Course_Tools/local.env
+
+#     Also loads API keys from api_keys_env if HF_TOKEN or OPENAI_API_KEY are not already set.
+
+#     Returns:
+#         dict: A dictionary with keys 'MODELS_PATH', 'DATA_PATH', and 'CACHE_PATH'.
+#     """
+
+#     from pathlib import Path
+#     import os
+#     from dotenv import load_dotenv
+
+#     environment = detect_jupyter_environment()
+
+#     if environment == "colab":
+#         # Set Colab-specific paths
+#         base_path = Path("/content/temp_workspace")
+#         data_path = base_path / "data"
+#         models_path = base_path / "models"
+#         cache_path = base_path / "downloads"
+
+#         # Set environment variables
+#         os.environ['DATA_PATH'] = str(data_path)
+#         os.environ['MODELS_PATH'] = str(models_path)
+#         os.environ['CACHE_PATH'] = str(cache_path)
+#         os.environ['TORCH_HOME'] = str(cache_path)
+#         os.environ['HF_HOME'] = str(cache_path)
+#         os.environ['HF_DATASETS_CACHE'] = str(data_path)
+#         os.environ['TQDM_NOTEBOOK'] = "true"
+
+#         # Create the directories
+#         for path in [data_path, models_path, cache_path]:
+#             path.mkdir(parents=True, exist_ok=True)
+
+#         print("[INFO] Environment: colab")
+#         print(f"DATA_PATH={data_path}")
+#         print(f"MODELS_PATH={models_path}")
+#         print(f"CACHE_PATH={cache_path}")
+#     else:
+#         # Load local.env or appropriate default
+#         home_local_env = Path.home() / "local.env"
+#         if home_local_env.exists():
+#             env_file = home_local_env
+#         else:
+#             env_file = Path(env_path).expanduser()
+
+#         if env_file.exists():
+#             load_dotenv(env_file, override=False)
+#             print(f"Loaded environment variables from: {env_file}")
+#         else:
+#             print(f"Warning: environment file not found at {env_file}")
+
+#         # Load API keys
+#         home_api_keys_file = Path.home() / "api_keys.env"
+#         if home_api_keys_file.exists():
+#             api_keys_file = home_api_keys_file
+#         elif environment == "colab":
+#             api_keys_file = Path("/content/drive/MyDrive/Colab Notebooks/api_keys.env")
+#         else:
+#             api_keys_file = Path(api_keys_env).expanduser()
+
+#         if api_keys_file.exists():
+#             load_dotenv(api_keys_file, override=False)
+#             print(f"Loaded API keys from: {api_keys_file}")
+#         else:
+#             print(f"Warning: API keys file not found at {api_keys_file}")
+
+#         # Retrieve and set paths
+#         models_path = Path(os.getenv("MODELS_PATH", "")).expanduser()
+#         data_path = Path(os.getenv("DATA_PATH", "")).expanduser()
+#         cache_path = Path(os.getenv("CACHE_PATH", "")).expanduser()
+
+#         os.environ["TORCH_HOME"] = str(cache_path)
+#         os.environ["HF_HOME"] = str(cache_path)
+#         os.environ["HF_DATASETS_CACHE"] = str(data_path)
+
+#         for path in [models_path, data_path, cache_path]:
+#             if not path.exists():
+#                 path.mkdir(parents=True, exist_ok=True)
+
+#         print(f"MODELS_PATH={models_path}")
+#         print(f"DATA_PATH={data_path}")
+#         print(f"CACHE_PATH={cache_path}")
+
+#     # Hugging Face login if token exists
+#     if os.getenv("HF_TOKEN"):
+#         try:
+#             import logging
+#             logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
+#             from huggingface_hub import login
+#             login(token=os.getenv("HF_TOKEN"))
+#             print("Successfully logged in to Hugging Face Hub.")
+#         except Exception as e:
+#             print(f"Failed to login to Hugging Face Hub: {e}")
+#     else:
+#         print("Set HF_TOKEN in api_keys.env or the environment to login to Hugging Face Hub")
+
+#     return {
+#         'MODELS_PATH': models_path,
+#         'DATA_PATH': data_path,
+#         'CACHE_PATH': cache_path
+#     }
+
 def config_paths_keys(env_path="~/Lessons/Course_Tools/local.env", api_keys_env="~/Lessons/Course_Tools/api_keys.env"):
     """
     Reads environment variables and sets paths.
@@ -218,15 +328,11 @@ def config_paths_keys(env_path="~/Lessons/Course_Tools/local.env", api_keys_env=
     - CoCalc: ~/Lessons/Course_Tools/cocalc.env
     - Local: ~/Lessons/Course_Tools/local.env
 
-    Also loads API keys from api_keys_env if HF_TOKEN or OPENAI_API_KEY are not already set.
+    Also loads API keys from api_keys.env if HF_TOKEN or OPENAI_API_KEY are not already set.
 
     Returns:
         dict: A dictionary with keys 'MODELS_PATH', 'DATA_PATH', and 'CACHE_PATH'.
     """
-
-    from pathlib import Path
-    import os
-    from dotenv import load_dotenv
 
     environment = detect_jupyter_environment()
 
@@ -254,34 +360,31 @@ def config_paths_keys(env_path="~/Lessons/Course_Tools/local.env", api_keys_env=
         print(f"DATA_PATH={data_path}")
         print(f"MODELS_PATH={models_path}")
         print(f"CACHE_PATH={cache_path}")
+
     else:
-        # Load local.env or appropriate default
+        # Load local.env or environment-specific default
         home_local_env = Path.home() / "local.env"
         if home_local_env.exists():
             env_file = home_local_env
         else:
             env_file = Path(env_path).expanduser()
 
+            if not env_file.exists():
+                # Auto-choose based on environment
+                if environment == "cocalc_compute_server":
+                    env_file = Path("~/Lessons/Course_Tools/cocalc_compute_server.env").expanduser()
+                elif environment == "cocalc":
+                    env_file = Path("~/Lessons/Course_Tools/cocalc.env").expanduser()
+                elif environment == "colab":
+                    env_file = Path("~/Lessons/Course_Tools/google_colab.env").expanduser()
+                else:
+                    env_file = Path("~/Lessons/Course_Tools/local.env").expanduser()
+
         if env_file.exists():
             load_dotenv(env_file, override=False)
             print(f"Loaded environment variables from: {env_file}")
         else:
             print(f"Warning: environment file not found at {env_file}")
-
-        # Load API keys
-        home_api_keys_file = Path.home() / "api_keys.env"
-        if home_api_keys_file.exists():
-            api_keys_file = home_api_keys_file
-        elif environment == "colab":
-            api_keys_file = Path("/content/drive/MyDrive/Colab Notebooks/api_keys.env")
-        else:
-            api_keys_file = Path(api_keys_env).expanduser()
-
-        if api_keys_file.exists():
-            load_dotenv(api_keys_file, override=False)
-            print(f"Loaded API keys from: {api_keys_file}")
-        else:
-            print(f"Warning: API keys file not found at {api_keys_file}")
 
         # Retrieve and set paths
         models_path = Path(os.getenv("MODELS_PATH", "")).expanduser()
@@ -300,7 +403,25 @@ def config_paths_keys(env_path="~/Lessons/Course_Tools/local.env", api_keys_env=
         print(f"DATA_PATH={data_path}")
         print(f"CACHE_PATH={cache_path}")
 
-    # Hugging Face login if token exists
+    # 🔐 Load API keys (colab-aware)
+    api_keys_file = None
+    home_api_keys_file = Path.home() / "api_keys.env"
+    colab_api_keys_file = Path("/content/drive/MyDrive/Colab Notebooks/api_keys.env")
+
+    if home_api_keys_file.exists():
+        api_keys_file = home_api_keys_file
+    elif environment == "colab" and colab_api_keys_file.exists():
+        api_keys_file = colab_api_keys_file
+    elif api_keys_env:
+        api_keys_file = Path(api_keys_env).expanduser()
+
+    if api_keys_file and api_keys_file.exists():
+        load_dotenv(api_keys_file, override=False)
+        print(f"Loaded API keys from: {api_keys_file}")
+    else:
+        print(f"Warning: API keys file not found. Looked in {home_api_keys_file} and {colab_api_keys_file}")
+
+    # 🔐 Login to Hugging Face
     if os.getenv("HF_TOKEN"):
         try:
             import logging
@@ -311,7 +432,7 @@ def config_paths_keys(env_path="~/Lessons/Course_Tools/local.env", api_keys_env=
         except Exception as e:
             print(f"Failed to login to Hugging Face Hub: {e}")
     else:
-        print("Set HF_TOKEN in api_keys.env or the environment to login to Hugging Face Hub")
+        print("Set HF_TOKEN in api_keys.env or in the environment to login to Hugging Face Hub")
 
     return {
         'MODELS_PATH': models_path,
