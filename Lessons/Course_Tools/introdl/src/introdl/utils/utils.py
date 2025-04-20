@@ -886,27 +886,29 @@ def convert_nb_to_html(output_filename="converted.html", notebook_path=None, tem
 
     Parameters:
         output_filename (str or Path): Name or path of the resulting HTML file.
-        notebook_path (str or Path): Path to the notebook to convert. If None, uses most recent .ipynb in current dir.
+        notebook_path (str or Path): Path to the notebook to convert. If None, uses most recent .ipynb in cwd.
         template (str): nbconvert template to use ("lab" or "classic"). Defaults to "lab".
 
     Notes:
-        - If running in Colab, uses a local temp directory to avoid issues with mounted Google Drive.
-        - Final output is written to output_filename (including Google Drive paths).
+        - Writes output to specified location, including Google Drive if mounted.
+        - Uses /tmp for intermediate files.
     """
-    from introdl.utils import _guess_notebook_path, detect_jupyter_environment
+
+    # If no notebook path is given, use the most recently modified .ipynb in current working directory
+    if notebook_path is None:
+        candidates = list(Path.cwd().glob("*.ipynb"))
+        if not candidates:
+            raise FileNotFoundError("No .ipynb files found in current directory.")
+        notebook_path = max(candidates, key=lambda f: f.stat().st_mtime)
 
     output_filename = Path(output_filename)
     if not output_filename.name.endswith(".html"):
         output_filename = output_filename.with_suffix(".html")
 
-    if notebook_path is None:
-        notebook_path = _guess_notebook_path()
-
     notebook_path = Path(notebook_path).resolve()
     output_dir = output_filename.parent.resolve()
     output_name = output_filename.stem
 
-    # Use temp directory for nbconvert processing
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp_path = Path(tmpdir) / notebook_path.name
         shutil.copy2(notebook_path, tmp_path)
