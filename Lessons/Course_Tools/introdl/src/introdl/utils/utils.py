@@ -30,6 +30,7 @@ import tempfile
 import shutil
 import inspect
 
+
 # Fallback-safe normalize import
 try:
     from nbformat.normalized import normalize
@@ -840,41 +841,95 @@ def _clean_invalid_outputs(notebook_path):
     with open(notebook_path, "w", encoding="utf-8") as f:
         nbformat.write(nb, f)
 
-def convert_nb_to_html(output_filename="converted.html", notebook_path=None):
+# def convert_nb_to_html(output_filename="converted.html", notebook_path=None):
+#     """
+#     Convert a notebook to HTML using the JupyterLab template.
+#     If notebook_path is None, uses the most recent .ipynb file in the current directory.
+#     Output will be written to current directory with the given output_filename.
+#     """
+#     output_filename = str(output_filename)
+#     if not output_filename.endswith(".html"):
+#         output_filename += ".html"
+
+#     if notebook_path is None:
+#         notebook_path = _guess_notebook_path()
+
+#     notebook_path = Path(notebook_path).resolve()
+#     output_path = Path.cwd() / output_filename
+
+#     with tempfile.TemporaryDirectory() as tmpdir:
+#         tmp_path = Path(tmpdir) / notebook_path.name
+#         shutil.copy2(notebook_path, tmp_path)
+#         print(f"[INFO] Temporary copy created: {tmp_path}")
+
+#         _clean_invalid_outputs(tmp_path)
+
+#         try:
+#             subprocess.run(
+#                 [
+#                     "jupyter", "nbconvert",
+#                     "--to", "html",
+#                     "--template", "lab",
+#                     "--output", output_path.stem,
+#                     "--output-dir", str(output_path.parent),
+#                     str(tmp_path)
+#                 ],
+#                 check=True
+#             )
+#             print(f"[SUCCESS] HTML export complete: {output_path}")
+#         except subprocess.CalledProcessError as e:
+#             print("[ERROR] Conversion failed:", e)
+
+def convert_nb_to_html(output_filename="converted.html", notebook_path=None, template="lab"):
     """
-    Convert a notebook to HTML using the JupyterLab template.
-    If notebook_path is None, uses the most recent .ipynb file in the current directory.
-    Output will be written to current directory with the given output_filename.
+    Convert a notebook to HTML using the specified nbconvert template.
+
+    Parameters:
+        output_filename (str or Path): Name or path of the resulting HTML file.
+        notebook_path (str or Path): Path to the notebook to convert. If None, uses most recent .ipynb in current dir.
+        template (str): nbconvert template to use ("lab" or "classic"). Defaults to "lab".
+
+    Notes:
+        - If running in Colab, uses a local temp directory to avoid issues with mounted Google Drive.
+        - Final output is written to output_filename (including Google Drive paths).
     """
-    output_filename = str(output_filename)
-    if not output_filename.endswith(".html"):
-        output_filename += ".html"
+    from introdl.utils import _guess_notebook_path, detect_jupyter_environment
+
+    output_filename = Path(output_filename)
+    if not output_filename.name.endswith(".html"):
+        output_filename = output_filename.with_suffix(".html")
 
     if notebook_path is None:
         notebook_path = _guess_notebook_path()
 
     notebook_path = Path(notebook_path).resolve()
-    output_path = Path.cwd() / output_filename
+    output_dir = output_filename.parent.resolve()
+    output_name = output_filename.stem
 
+    # Use temp directory for nbconvert processing
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp_path = Path(tmpdir) / notebook_path.name
         shutil.copy2(notebook_path, tmp_path)
         print(f"[INFO] Temporary copy created: {tmp_path}")
 
-        _clean_invalid_outputs(tmp_path)
-
         try:
-            subprocess.run(
+            result = subprocess.run(
                 [
                     "jupyter", "nbconvert",
                     "--to", "html",
-                    "--template", "lab",
-                    "--output", output_path.stem,
-                    "--output-dir", str(output_path.parent),
+                    "--template", template,
+                    "--output", output_name,
+                    "--output-dir", str(output_dir),
                     str(tmp_path)
                 ],
-                check=True
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
             )
-            print(f"[SUCCESS] HTML export complete: {output_path}")
-        except subprocess.CalledProcessError as e:
-            print("[ERROR] Conversion failed:", e)
+
+            if result.returncode != 0:
+                print("[ERROR] nbconvert failed:\n", result.stderr)
+            else:
+                print(f"[SUCCESS] HTML export complete: {output_dir / output_filename.name}")
+        except Exception as e:
+            print(f"[ERROR] Conversion exception: {e}")
