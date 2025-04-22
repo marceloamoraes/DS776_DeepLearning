@@ -241,7 +241,7 @@ def config_paths_keys(env_path=None, api_env_path=None):
                  "unknown": "Unknown Environment"}
 
     environment = detect_jupyter_environment()
-    print(f"✅ Detected environment: {env_names(environment)}\n")
+    print(f"✅ Detected environment: {env_names[environment]}\n")
 
     # -- Path configuration --
     if environment == "colab":
@@ -275,7 +275,7 @@ def config_paths_keys(env_path=None, api_env_path=None):
 
         if env_file.exists():
             load_dotenv(env_file, override=False)
-            print(f"Loaded workspace paths from: {env_file}")
+            print(f"Loading workspace paths from: {env_file}")
         else:
             print(f"⚠️ .env file not found: {env_file}")
 
@@ -323,12 +323,12 @@ def config_paths_keys(env_path=None, api_env_path=None):
         if key.endswith("_API_KEY") and os.environ[key] != "abcdefg"
     ]
     if found_keys:
-        print("\n🔐 API keys loaded (excluding 'abcdefg'):")
+        print("🔐 API keys loaded (excluding 'abcdefg'):")
         for key in sorted(found_keys):
             print(f"  - {key}")
         print("")
     else:
-        print("\n⚠️ No valid *_API_KEY environment variables found (excluding 'abcdefg').")
+        print("⚠️ No valid *_API_KEY environment variables found (excluding 'abcdefg').")
 
     # -- Hugging Face login --
     hf_token = os.getenv("HF_TOKEN")
