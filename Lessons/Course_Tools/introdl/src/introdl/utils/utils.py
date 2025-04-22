@@ -232,8 +232,16 @@ def config_paths_keys(env_path=None, api_env_path=None):
         dict: {'MODELS_PATH', 'DATA_PATH', 'CACHE_PATH'}
     """
     from introdl.utils import detect_jupyter_environment  # Assumes available
+
+    env_names = {"colab": "Official Google Colab",
+                 "cocalc": "CoCalc Home Server",
+                 "cocalc_compute_server": "CoCalc Compute Server",
+                 "vscode": "VSCode Jupyter",
+                 "paperspace": "Paperspace Notebook",
+                 "unknown": "Unknown Environment"}
+
     environment = detect_jupyter_environment()
-    print(f"Detected environment: {environment}")
+    print(f"✅ Detected environment: {env_names(environment)}\n")
 
     # -- Path configuration --
     if environment == "colab":
@@ -267,9 +275,9 @@ def config_paths_keys(env_path=None, api_env_path=None):
 
         if env_file.exists():
             load_dotenv(env_file, override=False)
-            print(f"Loaded environment from: {env_file}")
+            print(f"Loaded workspace paths from: {env_file}")
         else:
-            print(f"[WARNING] .env file not found: {env_file}")
+            print(f"⚠️ .env file not found: {env_file}")
 
         data_path = Path(os.getenv("DATA_PATH", "~/data")).expanduser()
         models_path = Path(os.getenv("MODELS_PATH", "~/models")).expanduser()
@@ -285,6 +293,7 @@ def config_paths_keys(env_path=None, api_env_path=None):
     print(f"DATA_PATH={data_path}")
     print(f"MODELS_PATH={models_path}")
     print(f"CACHE_PATH={cache_path}")
+    print(f"✅ Workspace paths configured for {env_names[environment]}\n")
 
     # -- API Keys loading --
     api_keys_file = None
@@ -303,9 +312,23 @@ def config_paths_keys(env_path=None, api_env_path=None):
 
     if api_keys_file and api_keys_file.exists():
         load_dotenv(api_keys_file, override=False)
-        print(f"Loaded API keys from: {api_keys_file}")
+        print(f"✅ Loaded API keys from: {api_keys_file}\n")
     else:
-        print("[WARNING] No api_keys.env file found in expected locations.")
+        print("⚠️ No api_keys.env file found in expected locations.\n")
+
+
+    # -- List loaded API keys (excluding 'abcdefg') --
+    found_keys = [
+        key for key in os.environ
+        if key.endswith("_API_KEY") and os.environ[key] != "abcdefg"
+    ]
+    if found_keys:
+        print("\n🔐 API keys loaded (excluding 'abcdefg'):")
+        for key in sorted(found_keys):
+            print(f"  - {key}")
+        print("")
+    else:
+        print("\n⚠️ No valid *_API_KEY environment variables found (excluding 'abcdefg').")
 
     # -- Hugging Face login --
     hf_token = os.getenv("HF_TOKEN")
@@ -320,18 +343,6 @@ def config_paths_keys(env_path=None, api_env_path=None):
             print(f"[ERROR] Hugging Face login failed: {e}")
     else:
         print("⚠️ HF_TOKEN not set. Set it in api_keys.env or the environment.")
-
-    # -- List loaded API keys (excluding 'abcdefg') --
-    found_keys = [
-        key for key in os.environ
-        if key.endswith("_API_KEY") and os.environ[key] != "abcdefg"
-    ]
-    if found_keys:
-        print("\n🔐 API keys loaded (excluding 'abcdefg'):")
-        for key in sorted(found_keys):
-            print(f"  - {key}")
-    else:
-        print("\n⚠️ No valid *_API_KEY environment variables found (excluding 'abcdefg').")
 
     return {
         'MODELS_PATH': models_path,
