@@ -65,6 +65,15 @@ def detect_jupyter_environment():
     - "paperspace": Running in a Paperspace notebook
     - "unknown": Environment not recognized
     """
+    
+    # Check for CoCalc frontend (browser UI)
+    if 'COCALC_CODE_PORT' in os.environ:
+        return "cocalc"
+    
+    # Check for CoCalc Compute Server (GCP or Hyperstack)
+    # CoCalc compute servers do NOT set COCALC_CODE_PORT, but do provision ~/cs_workspace
+    if Path.home().joinpath("cs_workspace").exists():
+        return "cocalc_compute_server"
 
     # Check for official Google Colab
     if 'google.colab' in sys.modules:
@@ -79,136 +88,8 @@ def detect_jupyter_environment():
     if 'PAPERSPACE_NOTEBOOK_ID' in os.environ:
         return "paperspace"
 
-    # Check for CoCalc frontend (browser UI)
-    if 'COCALC_CODE_PORT' in os.environ:
-        return "cocalc"
-
-    # Check for CoCalc Compute Server (GCP or Hyperstack)
-    # CoCalc compute servers do NOT set COCALC_CODE_PORT, but do provision ~/cs_workspace
-    if Path.home().joinpath("cs_workspace").exists():
-        return "cocalc_compute_server"
-
     # Fallback
     return "unknown"
-
-
-# def config_paths_keys(env_path="~/Lessons/Course_Tools/local.env", api_keys_env="~/Lessons/Course_Tools/api_keys.env"):
-#     """
-#     Reads environment variables and sets paths.
-#     If variables are not set, it uses dotenv to load them based on the environment:
-#     - CoCalc: ~/Lessons/Course_Tools/cocalc.env
-#     - Colab: ~/Lessons/Course_Tools/colab.env
-#     - Other: ~/Lessons/Course_Tools/local.env (default)
-
-#     Additionally, loads API keys from api_keys_env if HF_TOKEN and OPENAI_API_KEY are not already set.
-
-#     Parameters:
-#         env_path (str): Path to the local environment file, defaulting to ~/Lessons/Course_Tools/local.env.
-#         api_keys_env (str): Path to the API keys environment file, defaulting to ~/Lessons/Course_Tools/api_keys.env.
-
-#     Returns:
-#         dict: A dictionary with keys 'MODELS_PATH' and 'DATA_PATH'.
-#     """
-
-#     # Determine the environment
-#     environment = detect_jupyter_environment()
-
-#     # First, check if ~/local.env exists and use it if available
-#     home_local_env = Path.home() / "local.env"
-
-#     if home_local_env.exists():
-#         env_file = home_local_env
-#     else:
-#         # If env_path is provided explicitly, use it
-#         if env_path is not None:
-#             env_file = Path(env_path).expanduser()
-#         else:
-#             # Choose a default env file based on the environment
-#             if environment == "cocalc_compute_server":
-#                 env_file = Path("~/Lessons/Course_Tools/cocalc_compute_server.env").expanduser()
-#             elif environment == "cocalc":
-#                 env_file = Path("~/Lessons/Course_Tools/cocalc.env").expanduser()
-#             elif environment == "colab":
-#                 env_file = Path("~/Lessons/Course_Tools/google_colab.env").expanduser()
-#             else:  # fallback
-#                 env_file = Path("~/Lessons/Course_Tools/local.env").expanduser()
-
-#     # Load the environment variables
-#     if env_file.exists():
-#         load_dotenv(env_file, override=False)
-#         print(f"Loaded environment variables from: {env_file}")
-#     else:
-#         print(f"Warning: environment file not found at {env_file}.  Pass path to env_path to load a different file.")
-
-#     # Resolve path to ~/api_keys.env
-#     home_api_keys_file = Path.home() / "api_keys.env"
-
-#     # Determine which file to load
-#     if home_api_keys_file.exists():
-#         api_keys_file = home_api_keys_file
-#     else:
-#         if api_keys_env is not None:
-#             api_keys_file = Path(api_keys_env).expanduser()
-#         else:
-#             if environment != "colab":
-#                 api_keys_file = Path("~/Lessons/Course_Tools/api_keys.env").expanduser()
-#             else:
-#                 api_keys_file = Path("/content/drive/MyDrive/Colab Notebooks/api_keys.env")
-
-#     # Load the API keys from the selected file
-#     if api_keys_file.exists():
-#         load_dotenv(api_keys_file, override=False)
-#         print(f"Loaded API keys from: {api_keys_file}")
-#     else:
-#         print(f"Warning: API keys file not found at {api_keys_file}. Pass path to api_keys_env to load a different file.")
-
-#     # Retrieve and expand paths
-#     models_path = Path(os.getenv('MODELS_PATH', "")).expanduser()
-#     data_path = Path(os.getenv('DATA_PATH', "")).expanduser()
-#     cache_path = Path(os.getenv('CACHE_PATH', "")).expanduser()
-#     torch_home = Path(os.getenv('TORCH_HOME', "")).expanduser()
-#     hf_home = Path(os.getenv('HF_HOME', "")).expanduser()
-
-#     # Set environment variables to expanded paths
-#     os.environ['MODELS_PATH'] = str(models_path)
-#     os.environ['DATA_PATH'] = str(data_path)
-#     os.environ['CACHE_PATH'] = str(cache_path)
-#     os.environ['TORCH_HOME'] = str(cache_path)
-#     os.environ['HF_HOME'] = str(cache_path)
-#     os.environ['HF_DATASETS_CACHE'] = str(data_path)
-
-#     # Create directories if they don't exist
-#     for path in [models_path, data_path, cache_path, torch_home, hf_home]:
-#         if not path.exists():
-#             path.mkdir(parents=True, exist_ok=True)
-
-#     # Ensure paths are set
-#     print(f"MODELS_PATH={models_path}")
-#     print(f"DATA_PATH={data_path}")
-#     print(f"CACHE_PATH={cache_path}")
-#     print(f"TORCH_HOME={torch_home}")
-#     print(f"HF_HOME={hf_home}")
-#     print(f"HF_DATASETS_CACHE={os.getenv('HF_DATASETS_CACHE')}")
-
-#     # Login to Hugging Face if token is set
-#     if os.getenv('HF_TOKEN'):
-#         try:
-#             import logging
-#             logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
-#             from huggingface_hub import login
-#             login(token=os.getenv('HF_TOKEN'))
-#             print("Successfully logged in to Hugging Face Hub.")
-#         except Exception as e:
-#             print(f"Failed to login to Hugging Face Hub: {e}")
-#     else:
-#         print("Set HF_TOKEN in api_keys.env or in environment to login to HuggingFace Hub")
-#         print("Most things should work without logging in, but some features may be limited.")
-    
-#     return {
-#         'MODELS_PATH': models_path,
-#         'DATA_PATH': data_path,
-#         'CACHE_PATH': cache_path
-#     }
 
 # def config_paths_keys(env_path="~/Lessons/Course_Tools/local.env", api_keys_env="~/Lessons/Course_Tools/api_keys.env"):
 #     """
@@ -219,15 +100,11 @@ def detect_jupyter_environment():
 #     - CoCalc: ~/Lessons/Course_Tools/cocalc.env
 #     - Local: ~/Lessons/Course_Tools/local.env
 
-#     Also loads API keys from api_keys_env if HF_TOKEN or OPENAI_API_KEY are not already set.
+#     Also loads API keys from api_keys.env if HF_TOKEN or OPENAI_API_KEY are not already set.
 
 #     Returns:
 #         dict: A dictionary with keys 'MODELS_PATH', 'DATA_PATH', and 'CACHE_PATH'.
 #     """
-
-#     from pathlib import Path
-#     import os
-#     from dotenv import load_dotenv
 
 #     environment = detect_jupyter_environment()
 
@@ -255,34 +132,31 @@ def detect_jupyter_environment():
 #         print(f"DATA_PATH={data_path}")
 #         print(f"MODELS_PATH={models_path}")
 #         print(f"CACHE_PATH={cache_path}")
+
 #     else:
-#         # Load local.env or appropriate default
+#         # Load local.env or environment-specific default
 #         home_local_env = Path.home() / "local.env"
 #         if home_local_env.exists():
 #             env_file = home_local_env
 #         else:
 #             env_file = Path(env_path).expanduser()
 
+#             if not env_file.exists():
+#                 # Auto-choose based on environment
+#                 if environment == "cocalc_compute_server":
+#                     env_file = Path("~/Lessons/Course_Tools/cocalc_compute_server.env").expanduser()
+#                 elif environment == "cocalc":
+#                     env_file = Path("~/Lessons/Course_Tools/cocalc.env").expanduser()
+#                 elif environment == "colab":
+#                     env_file = Path("~/Lessons/Course_Tools/google_colab.env").expanduser()
+#                 else:
+#                     env_file = Path("~/Lessons/Course_Tools/local.env").expanduser()
+
 #         if env_file.exists():
 #             load_dotenv(env_file, override=False)
 #             print(f"Loaded environment variables from: {env_file}")
 #         else:
 #             print(f"Warning: environment file not found at {env_file}")
-
-#         # Load API keys
-#         home_api_keys_file = Path.home() / "api_keys.env"
-#         if home_api_keys_file.exists():
-#             api_keys_file = home_api_keys_file
-#         elif environment == "colab":
-#             api_keys_file = Path("/content/drive/MyDrive/Colab Notebooks/api_keys.env")
-#         else:
-#             api_keys_file = Path(api_keys_env).expanduser()
-
-#         if api_keys_file.exists():
-#             load_dotenv(api_keys_file, override=False)
-#             print(f"Loaded API keys from: {api_keys_file}")
-#         else:
-#             print(f"Warning: API keys file not found at {api_keys_file}")
 
 #         # Retrieve and set paths
 #         models_path = Path(os.getenv("MODELS_PATH", "")).expanduser()
@@ -301,7 +175,25 @@ def detect_jupyter_environment():
 #         print(f"DATA_PATH={data_path}")
 #         print(f"CACHE_PATH={cache_path}")
 
-#     # Hugging Face login if token exists
+#     # 🔐 Load API keys (colab-aware)
+#     api_keys_file = None
+#     home_api_keys_file = Path.home() / "api_keys.env"
+#     colab_api_keys_file = Path("/content/drive/MyDrive/Colab Notebooks/api_keys.env")
+
+#     if home_api_keys_file.exists():
+#         api_keys_file = home_api_keys_file
+#     elif environment == "colab" and colab_api_keys_file.exists():
+#         api_keys_file = colab_api_keys_file
+#     elif api_keys_env:
+#         api_keys_file = Path(api_keys_env).expanduser()
+
+#     if api_keys_file and api_keys_file.exists():
+#         load_dotenv(api_keys_file, override=False)
+#         print(f"Loaded API keys from: {api_keys_file}")
+#     else:
+#         print(f"Warning: API keys file not found. Looked in {home_api_keys_file} and {colab_api_keys_file}")
+
+#     # 🔐 Login to Hugging Face
 #     if os.getenv("HF_TOKEN"):
 #         try:
 #             import logging
@@ -312,7 +204,7 @@ def detect_jupyter_environment():
 #         except Exception as e:
 #             print(f"Failed to login to Hugging Face Hub: {e}")
 #     else:
-#         print("Set HF_TOKEN in api_keys.env or the environment to login to Hugging Face Hub")
+#         print("Set HF_TOKEN in api_keys.env or in the environment to login to Hugging Face Hub")
 
 #     return {
 #         'MODELS_PATH': models_path,
@@ -320,126 +212,133 @@ def detect_jupyter_environment():
 #         'CACHE_PATH': cache_path
 #     }
 
-def config_paths_keys(env_path="~/Lessons/Course_Tools/local.env", api_keys_env="~/Lessons/Course_Tools/api_keys.env"):
+def config_paths_keys(env_path=None, api_env_path=None):
     """
-    Reads environment variables and sets paths.
+    Reads environment variables and sets paths based on runtime environment.
 
-    If running in Colab, sets hardcoded /content/temp_workspace paths.
-    Otherwise uses dotenv to load based on environment:
-    - CoCalc: ~/Lessons/Course_Tools/cocalc.env
-    - Local: ~/Lessons/Course_Tools/local.env
+    Parameters:
+        env_path (str or Path, optional): Path to environment file to load. If None, selects automatically.
+        api_env_path (str or Path, optional): Path to API key env file. If None, searches default locations.
 
-    Also loads API keys from api_keys.env if HF_TOKEN or OPENAI_API_KEY are not already set.
+    Uses the following defaults if env_path is None:
+        - Colab:         ~/Lessons/Course_Tools/google_colab.env
+        - CoCalc:        ~/Lessons/Course_Tools/cocalc.env
+        - CoCalc Server: ~/Lessons/Course_Tools/cocalc_compute_server.env
+        - Default:       ~/Lessons/Course_Tools/local.env
+
+    Also loads API keys from api_keys.env if not already set.
 
     Returns:
-        dict: A dictionary with keys 'MODELS_PATH', 'DATA_PATH', and 'CACHE_PATH'.
+        dict: {'MODELS_PATH', 'DATA_PATH', 'CACHE_PATH'}
     """
-
+    from introdl.utils import detect_jupyter_environment  # Assumes available
     environment = detect_jupyter_environment()
+    print(f"Detected environment: {environment}")
 
+    # -- Path configuration --
     if environment == "colab":
-        # Set Colab-specific paths
         base_path = Path("/content/temp_workspace")
         data_path = base_path / "data"
         models_path = base_path / "models"
         cache_path = base_path / "downloads"
 
-        # Set environment variables
-        os.environ['DATA_PATH'] = str(data_path)
-        os.environ['MODELS_PATH'] = str(models_path)
-        os.environ['CACHE_PATH'] = str(cache_path)
-        os.environ['TORCH_HOME'] = str(cache_path)
-        os.environ['HF_HOME'] = str(cache_path)
-        os.environ['HF_DATASETS_CACHE'] = str(data_path)
-        os.environ['TQDM_NOTEBOOK'] = "true"
-
-        # Create the directories
         for path in [data_path, models_path, cache_path]:
             path.mkdir(parents=True, exist_ok=True)
 
-        print("[INFO] Environment: colab")
-        print(f"DATA_PATH={data_path}")
-        print(f"MODELS_PATH={models_path}")
-        print(f"CACHE_PATH={cache_path}")
+        os.environ["DATA_PATH"] = str(data_path)
+        os.environ["MODELS_PATH"] = str(models_path)
+        os.environ["CACHE_PATH"] = str(cache_path)
+        os.environ["TORCH_HOME"] = str(cache_path)
+        os.environ["HF_HOME"] = str(cache_path)
+        os.environ["HF_DATASETS_CACHE"] = str(data_path)
+        os.environ["TQDM_NOTEBOOK"] = "true"
 
     else:
-        # Load local.env or environment-specific default
-        home_local_env = Path.home() / "local.env"
-        if home_local_env.exists():
-            env_file = home_local_env
-        else:
+        # Determine which env file to use
+        if env_path is not None:
             env_file = Path(env_path).expanduser()
-
-            if not env_file.exists():
-                # Auto-choose based on environment
-                if environment == "cocalc_compute_server":
-                    env_file = Path("~/Lessons/Course_Tools/cocalc_compute_server.env").expanduser()
-                elif environment == "cocalc":
-                    env_file = Path("~/Lessons/Course_Tools/cocalc.env").expanduser()
-                elif environment == "colab":
-                    env_file = Path("~/Lessons/Course_Tools/google_colab.env").expanduser()
-                else:
-                    env_file = Path("~/Lessons/Course_Tools/local.env").expanduser()
+        else:
+            env_map = {
+                "cocalc_compute_server": "~/Lessons/Course_Tools/cocalc_compute_server.env",
+                "cocalc": "~/Lessons/Course_Tools/cocalc.env",
+                "colab": "~/Lessons/Course_Tools/google_colab.env",
+            }
+            env_file = Path(env_map.get(environment, "~/Lessons/Course_Tools/local.env")).expanduser()
 
         if env_file.exists():
             load_dotenv(env_file, override=False)
-            print(f"Loaded environment variables from: {env_file}")
+            print(f"Loaded environment from: {env_file}")
         else:
-            print(f"Warning: environment file not found at {env_file}")
+            print(f"[WARNING] .env file not found: {env_file}")
 
-        # Retrieve and set paths
-        models_path = Path(os.getenv("MODELS_PATH", "")).expanduser()
-        data_path = Path(os.getenv("DATA_PATH", "")).expanduser()
-        cache_path = Path(os.getenv("CACHE_PATH", "")).expanduser()
+        data_path = Path(os.getenv("DATA_PATH", "~/data")).expanduser()
+        models_path = Path(os.getenv("MODELS_PATH", "~/models")).expanduser()
+        cache_path = Path(os.getenv("CACHE_PATH", "~/cache")).expanduser()
+
+        for path in [data_path, models_path, cache_path]:
+            path.mkdir(parents=True, exist_ok=True)
 
         os.environ["TORCH_HOME"] = str(cache_path)
         os.environ["HF_HOME"] = str(cache_path)
         os.environ["HF_DATASETS_CACHE"] = str(data_path)
 
-        for path in [models_path, data_path, cache_path]:
-            if not path.exists():
-                path.mkdir(parents=True, exist_ok=True)
+    print(f"DATA_PATH={data_path}")
+    print(f"MODELS_PATH={models_path}")
+    print(f"CACHE_PATH={cache_path}")
 
-        print(f"MODELS_PATH={models_path}")
-        print(f"DATA_PATH={data_path}")
-        print(f"CACHE_PATH={cache_path}")
-
-    # 🔐 Load API keys (colab-aware)
+    # -- API Keys loading --
     api_keys_file = None
-    home_api_keys_file = Path.home() / "api_keys.env"
-    colab_api_keys_file = Path("/content/drive/MyDrive/Colab Notebooks/api_keys.env")
-
-    if home_api_keys_file.exists():
-        api_keys_file = home_api_keys_file
-    elif environment == "colab" and colab_api_keys_file.exists():
-        api_keys_file = colab_api_keys_file
-    elif api_keys_env:
-        api_keys_file = Path(api_keys_env).expanduser()
+    if api_env_path is not None:
+        api_keys_file = Path(api_env_path).expanduser()
+    else:
+        default_api_paths = [
+            Path.home() / "api_keys.env",
+            Path("/content/drive/MyDrive/Colab Notebooks/api_keys.env") if environment == "colab" else None,
+            Path("~/Lessons/Course_Tools/api_keys.env").expanduser()
+        ]
+        for path in default_api_paths:
+            if path and path.exists():
+                api_keys_file = path
+                break
 
     if api_keys_file and api_keys_file.exists():
         load_dotenv(api_keys_file, override=False)
         print(f"Loaded API keys from: {api_keys_file}")
     else:
-        print(f"Warning: API keys file not found. Looked in {home_api_keys_file} and {colab_api_keys_file}")
+        print("[WARNING] No api_keys.env file found in expected locations.")
 
-    # 🔐 Login to Hugging Face
-    if os.getenv("HF_TOKEN"):
+    # -- Hugging Face login --
+    hf_token = os.getenv("HF_TOKEN")
+    if hf_token:
         try:
             import logging
             logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
             from huggingface_hub import login
-            login(token=os.getenv("HF_TOKEN"))
-            print("Successfully logged in to Hugging Face Hub.")
+            login(token=hf_token)
+            print("✅ Logged into Hugging Face Hub.")
         except Exception as e:
-            print(f"Failed to login to Hugging Face Hub: {e}")
+            print(f"[ERROR] Hugging Face login failed: {e}")
     else:
-        print("Set HF_TOKEN in api_keys.env or in the environment to login to Hugging Face Hub")
+        print("⚠️ HF_TOKEN not set. Set it in api_keys.env or the environment.")
+
+    # -- List loaded API keys (excluding 'abcdefg') --
+    found_keys = [
+        key for key in os.environ
+        if key.endswith("_API_KEY") and os.environ[key] != "abcdefg"
+    ]
+    if found_keys:
+        print("\n🔐 API keys loaded (excluding 'abcdefg'):")
+        for key in sorted(found_keys):
+            print(f"  - {key}")
+    else:
+        print("\n⚠️ No valid *_API_KEY environment variables found (excluding 'abcdefg').")
 
     return {
         'MODELS_PATH': models_path,
         'DATA_PATH': data_path,
         'CACHE_PATH': cache_path
     }
+
 
 
 def get_device():
@@ -841,45 +740,84 @@ def _clean_invalid_outputs(notebook_path):
     with open(notebook_path, "w", encoding="utf-8") as f:
         nbformat.write(nb, f)
 
-# def convert_nb_to_html(output_filename="converted.html", notebook_path=None):
+# def convert_nb_to_html(output_filename="converted.html", notebook_path=None, template="lab"):
 #     """
-#     Convert a notebook to HTML using the JupyterLab template.
-#     If notebook_path is None, uses the most recent .ipynb file in the current directory.
-#     Output will be written to current directory with the given output_filename.
-#     """
-#     output_filename = str(output_filename)
-#     if not output_filename.endswith(".html"):
-#         output_filename += ".html"
+#     Convert a notebook to HTML using the specified nbconvert template.
 
+#     Parameters:
+#         output_filename (str or Path): Name or path of the resulting HTML file.
+#         notebook_path (str or Path): Path to the notebook to convert. If None, uses most recent .ipynb in cwd.
+#         template (str): nbconvert template to use ("lab" or "classic"). Defaults to "lab".
+
+#     Notes:
+#         - Cleans up Colab-specific metadata (e.g., 'errorDetails') and broken widget metadata.
+#         - Automatically falls back to 'classic' template if 'lab' fails.
+#         - Final HTML is written to output_filename (supports Google Drive paths).
+#     """
+
+#     # If no notebook path is given, use most recent .ipynb in current directory
 #     if notebook_path is None:
-#         notebook_path = _guess_notebook_path()
+#         candidates = list(Path.cwd().glob("*.ipynb"))
+#         if not candidates:
+#             raise FileNotFoundError("No .ipynb files found in current directory.")
+#         notebook_path = max(candidates, key=lambda f: f.stat().st_mtime)
+
+#     output_filename = Path(output_filename)
+#     if not output_filename.name.endswith(".html"):
+#         output_filename = output_filename.with_suffix(".html")
 
 #     notebook_path = Path(notebook_path).resolve()
-#     output_path = Path.cwd() / output_filename
+#     output_dir = output_filename.parent.resolve()
+#     output_name = output_filename.stem
 
 #     with tempfile.TemporaryDirectory() as tmpdir:
 #         tmp_path = Path(tmpdir) / notebook_path.name
 #         shutil.copy2(notebook_path, tmp_path)
 #         print(f"[INFO] Temporary copy created: {tmp_path}")
 
-#         _clean_invalid_outputs(tmp_path)
-
+#         # 🧼 Clean Colab errorDetails and invalid widget metadata
 #         try:
-#             subprocess.run(
+#             nb = nbformat.read(tmp_path, as_version=4)
+#             for cell in nb.cells:
+#                 if "outputs" in cell:
+#                     for output in cell["outputs"]:
+#                         if isinstance(output, dict):
+#                             if "errorDetails" in output:
+#                                 del output["errorDetails"]
+#                             # Remove broken widget views that trigger KeyError
+#                             if "data" in output and "application/vnd.jupyter.widget-view+json" in output["data"]:
+#                                 output["data"].pop("application/vnd.jupyter.widget-view+json", None)
+#             if "metadata" in nb and "widgets" in nb["metadata"]:
+#                 del nb["metadata"]["widgets"]
+#             nbformat.write(nb, tmp_path)
+#         except Exception as e:
+#             print(f"[WARNING] Failed to clean notebook metadata: {e}")
+
+#         def run_nbconvert(tmpl):
+#             return subprocess.run(
 #                 [
 #                     "jupyter", "nbconvert",
 #                     "--to", "html",
-#                     "--template", "lab",
-#                     "--output", output_path.stem,
-#                     "--output-dir", str(output_path.parent),
+#                     "--template", tmpl,
+#                     "--output", output_name,
+#                     "--output-dir", str(output_dir),
 #                     str(tmp_path)
 #                 ],
-#                 check=True
+#                 stdout=subprocess.PIPE,
+#                 stderr=subprocess.PIPE,
+#                 text=True
 #             )
-#             print(f"[SUCCESS] HTML export complete: {output_path}")
-#         except subprocess.CalledProcessError as e:
-#             print("[ERROR] Conversion failed:", e)
 
+#         # 🧪 Try nbconvert with the specified template, fallback to classic if it fails
+#         result = run_nbconvert(template)
+#         if result.returncode != 0:
+#             print(f"[WARNING] nbconvert with template '{template}' failed. Retrying with 'classic'...")
+#             result = run_nbconvert("classic")
+
+#         if result.returncode == 0:
+#             print(f"[SUCCESS] HTML export complete: {output_dir / output_filename.name}")
+#         else:
+#             print("[ERROR] nbconvert failed:\n", result.stderr)
 
 def convert_nb_to_html(output_filename="converted.html", notebook_path=None, template="lab"):
     """
@@ -891,7 +829,8 @@ def convert_nb_to_html(output_filename="converted.html", notebook_path=None, tem
         template (str): nbconvert template to use ("lab" or "classic"). Defaults to "lab".
 
     Notes:
-        - Cleans up Colab-specific metadata (e.g., 'errorDetails') and broken widget metadata.
+        - Cleans up Colab/CoCalc-specific metadata (e.g., 'id', 'errorDetails', 'request').
+        - Filters out invalid outputs missing 'output_type'.
         - Automatically falls back to 'classic' template if 'lab' fails.
         - Final HTML is written to output_filename (supports Google Drive paths).
     """
@@ -916,20 +855,34 @@ def convert_nb_to_html(output_filename="converted.html", notebook_path=None, tem
         shutil.copy2(notebook_path, tmp_path)
         print(f"[INFO] Temporary copy created: {tmp_path}")
 
-        # 🧼 Clean Colab errorDetails and invalid widget metadata
+        # 🧼 Clean metadata that breaks nbconvert
         try:
             nb = nbformat.read(tmp_path, as_version=4)
+
             for cell in nb.cells:
+                # Remove invalid top-level fields
+                cell.pop("id", None)
+
+                # Clean outputs
                 if "outputs" in cell:
+                    cleaned_outputs = []
                     for output in cell["outputs"]:
-                        if isinstance(output, dict):
-                            if "errorDetails" in output:
-                                del output["errorDetails"]
-                            # Remove broken widget views that trigger KeyError
-                            if "data" in output and "application/vnd.jupyter.widget-view+json" in output["data"]:
-                                output["data"].pop("application/vnd.jupyter.widget-view+json", None)
+                        if not isinstance(output, dict):
+                            continue
+                        if "output_type" not in output:
+                            # Not a valid output object — skip it
+                            continue
+                        output.pop("errorDetails", None)
+                        output.pop("request", None)
+                        if "data" in output and "application/vnd.jupyter.widget-view+json" in output["data"]:
+                            output["data"].pop("application/vnd.jupyter.widget-view+json", None)
+                        cleaned_outputs.append(output)
+                    cell["outputs"] = cleaned_outputs
+
+            # Remove broken widget metadata
             if "metadata" in nb and "widgets" in nb["metadata"]:
                 del nb["metadata"]["widgets"]
+
             nbformat.write(nb, tmp_path)
         except Exception as e:
             print(f"[WARNING] Failed to clean notebook metadata: {e}")
