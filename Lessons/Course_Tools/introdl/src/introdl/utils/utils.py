@@ -16,11 +16,27 @@ from textwrap import TextWrapper
 from sklearn.model_selection import train_test_split
 from torch.utils.data import Subset
 from pathlib import Path
-from huggingface_hub import hf_hub_download
 import warnings
 import shutil
 from IPython.display import display, IFrame
 from IPython.core.display import HTML
+import gc
+import nbformat
+import nbformat
+from nbformat import validate
+from nbformat.validator import NotebookValidationError
+import subprocess
+import tempfile
+import shutil
+import inspect
+
+
+# Fallback-safe normalize import
+try:
+    from nbformat.normalized import normalize
+except ImportError:
+    def normalize(nb): return nb  # no-op if normalize not available
+
 
 try:
     import dotenv
@@ -35,80 +51,487 @@ finally:
 # Utility Functions
 ###########################################################
 
+import os
+import sys
+from pathlib import Path
+
+# def detect_jupyter_environment():
+#     """
+#     Detects the Jupyter environment and returns one of:
+#     - "colab": Running in official Google Colab
+#     - "vscode": Running in VSCode
+#     - "cocalc": Running inside the CoCalc frontend
+#     - "cocalc_compute_server": Running on a compute server (e.g., GCP or Hyperstack) launched from CoCalc
+#     - "paperspace": Running in a Paperspace notebook
+#     - "unknown": Environment not recognized
+#     """
+    
+#     # Check for CoCalc frontend (browser UI)
+#     if 'COCALC_CODE_PORT' in os.environ:
+#         return "cocalc"
+    
+#     # Check for CoCalc Compute Server (GCP or Hyperstack)
+#     # CoCalc compute servers do NOT set COCALC_CODE_PORT, but do provision ~/cs_workspace
+#     if Path.home().joinpath("cs_workspace").exists():
+#         return "cocalc_compute_server"
+
+#     # Check for official Google Colab
+#     if 'google.colab' in sys.modules:
+#         if 'COLAB_RELEASE_TAG' in os.environ or 'COLAB_GPU' in os.environ:
+#             return "colab"
+
+#     # Check for VSCode
+#     if 'VSCODE_PID' in os.environ:
+#         return "vscode"
+
+#     # Check for Paperspace
+#     if 'PAPERSPACE_NOTEBOOK_ID' in os.environ:
+#         return "paperspace"
+
+#     # Fallback
+#     return "unknown"
+
+# def config_paths_keys(env_path="~/Lessons/Course_Tools/local.env", api_keys_env="~/Lessons/Course_Tools/api_keys.env"):
+#     """
+#     Reads environment variables and sets paths.
+
+#     If running in Colab, sets hardcoded /content/temp_workspace paths.
+#     Otherwise uses dotenv to load based on environment:
+#     - CoCalc: ~/Lessons/Course_Tools/cocalc.env
+#     - Local: ~/Lessons/Course_Tools/local.env
+
+#     Also loads API keys from api_keys.env if HF_TOKEN or OPENAI_API_KEY are not already set.
+
+#     Returns:
+#         dict: A dictionary with keys 'MODELS_PATH', 'DATA_PATH', and 'CACHE_PATH'.
+#     """
+
+#     environment = detect_jupyter_environment()
+
+#     if environment == "colab":
+#         # Set Colab-specific paths
+#         base_path = Path("/content/temp_workspace")
+#         data_path = base_path / "data"
+#         models_path = base_path / "models"
+#         cache_path = base_path / "downloads"
+
+#         # Set environment variables
+#         os.environ['DATA_PATH'] = str(data_path)
+#         os.environ['MODELS_PATH'] = str(models_path)
+#         os.environ['CACHE_PATH'] = str(cache_path)
+#         os.environ['TORCH_HOME'] = str(cache_path)
+#         os.environ['HF_HOME'] = str(cache_path)
+#         os.environ['HF_DATASETS_CACHE'] = str(data_path)
+#         os.environ['TQDM_NOTEBOOK'] = "true"
+
+#         # Create the directories
+#         for path in [data_path, models_path, cache_path]:
+#             path.mkdir(parents=True, exist_ok=True)
+
+#         print("[INFO] Environment: colab")
+#         print(f"DATA_PATH={data_path}")
+#         print(f"MODELS_PATH={models_path}")
+#         print(f"CACHE_PATH={cache_path}")
+
+#     else:
+#         # Load local.env or environment-specific default
+#         home_local_env = Path.home() / "local.env"
+#         if home_local_env.exists():
+#             env_file = home_local_env
+#         else:
+#             env_file = Path(env_path).expanduser()
+
+#             if not env_file.exists():
+#                 # Auto-choose based on environment
+#                 if environment == "cocalc_compute_server":
+#                     env_file = Path("~/Lessons/Course_Tools/cocalc_compute_server.env").expanduser()
+#                 elif environment == "cocalc":
+#                     env_file = Path("~/Lessons/Course_Tools/cocalc.env").expanduser()
+#                 elif environment == "colab":
+#                     env_file = Path("~/Lessons/Course_Tools/google_colab.env").expanduser()
+#                 else:
+#                     env_file = Path("~/Lessons/Course_Tools/local.env").expanduser()
+
+#         if env_file.exists():
+#             load_dotenv(env_file, override=False)
+#             print(f"Loaded environment variables from: {env_file}")
+#         else:
+#             print(f"Warning: environment file not found at {env_file}")
+
+#         # Retrieve and set paths
+#         models_path = Path(os.getenv("MODELS_PATH", "")).expanduser()
+#         data_path = Path(os.getenv("DATA_PATH", "")).expanduser()
+#         cache_path = Path(os.getenv("CACHE_PATH", "")).expanduser()
+
+#         os.environ["TORCH_HOME"] = str(cache_path)
+#         os.environ["HF_HOME"] = str(cache_path)
+#         os.environ["HF_DATASETS_CACHE"] = str(data_path)
+
+#         for path in [models_path, data_path, cache_path]:
+#             if not path.exists():
+#                 path.mkdir(parents=True, exist_ok=True)
+
+#         print(f"MODELS_PATH={models_path}")
+#         print(f"DATA_PATH={data_path}")
+#         print(f"CACHE_PATH={cache_path}")
+
+#     # 🔐 Load API keys (colab-aware)
+#     api_keys_file = None
+#     home_api_keys_file = Path.home() / "api_keys.env"
+#     colab_api_keys_file = Path("/content/drive/MyDrive/Colab Notebooks/api_keys.env")
+
+#     if home_api_keys_file.exists():
+#         api_keys_file = home_api_keys_file
+#     elif environment == "colab" and colab_api_keys_file.exists():
+#         api_keys_file = colab_api_keys_file
+#     elif api_keys_env:
+#         api_keys_file = Path(api_keys_env).expanduser()
+
+#     if api_keys_file and api_keys_file.exists():
+#         load_dotenv(api_keys_file, override=False)
+#         print(f"Loaded API keys from: {api_keys_file}")
+#     else:
+#         print(f"Warning: API keys file not found. Looked in {home_api_keys_file} and {colab_api_keys_file}")
+
+#     # 🔐 Login to Hugging Face
+#     if os.getenv("HF_TOKEN"):
+#         try:
+#             import logging
+#             logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
+#             from huggingface_hub import login
+#             login(token=os.getenv("HF_TOKEN"))
+#             print("Successfully logged in to Hugging Face Hub.")
+#         except Exception as e:
+#             print(f"Failed to login to Hugging Face Hub: {e}")
+#     else:
+#         print("Set HF_TOKEN in api_keys.env or in the environment to login to Hugging Face Hub")
+
+#     return {
+#         'MODELS_PATH': models_path,
+#         'DATA_PATH': data_path,
+#         'CACHE_PATH': cache_path
+#     }
+
 def detect_jupyter_environment():
-    if 'google.colab' in sys.modules:
-        return "colab"
-    elif 'VSCODE_PID' in os.environ:
-        return "vscode"
-    elif 'COCALC_CODE_PORT' in os.environ:
-        return "cocalc"
-    elif 'JPY_PARENT_PID' in os.environ:
-        return "jupyterlab"
-    else:
-        return "Unknown"
-
-def config_paths_keys(env_path="~/Lessons/Course_Tools/local.env", api_keys_env="~/Lessons/Course_Tools/api_keys.env"):
     """
-    Reads environment variables and sets paths.
-    If variables are not set, it uses dotenv to load them based on the environment:
-    - CoCalc: ~/Lessons/Course_Tools/cocalc.env
-    - Colab: ~/Lessons/Course_Tools/colab.env
-    - Other: ~/Lessons/Course_Tools/local.env (default)
+    Detects the Jupyter environment and returns one of:
+    - "colab": Running in official Google Colab
+    - "lightning": Running in Lightning AI Studio
+    - "vscode": Running in VSCode
+    - "cocalc": Running inside the CoCalc frontend
+    - "cocalc_compute_server": Running on a compute server (e.g., GCP or Hyperstack) launched from CoCalc
+    - "paperspace": Running in a Paperspace notebook
+    - "unknown": Environment not recognized
+    """
+    import os
+    import sys
+    from pathlib import Path
 
-    Additionally, loads API keys from api_keys_env if HF_TOKEN and OPENAI_API_KEY are not already set.
+    # --- Check for Lightning AI Studio ---
+    if (
+        os.environ.get('ENVIRONMENT', '').lower().startswith('beta-lightning')
+        or 'LIGHTNING_CLOUDSPACE_HOST' in os.environ
+        or 'LIGHTNING_RESOURCE_TYPE' in os.environ
+    ):
+        return "lightning"
 
-    Parameters:
-        env_path (str): Path to the local environment file, defaulting to ~/Lessons/Course_Tools/local.env.
-        api_keys_env (str): Path to the API keys environment file, defaulting to ~/Lessons/Course_Tools/api_keys.env.
+    # --- Check for CoCalc frontend ---
+    if 'COCALC_CODE_PORT' in os.environ:
+        return "cocalc"
+    
+    # --- Check for CoCalc Compute Server (e.g., GCP or Hyperstack) ---
+    if Path.home().joinpath("cs_workspace").exists():
+        return "cocalc_compute_server"
+
+    # --- Check for Google Colab ---
+    if 'google.colab' in sys.modules:
+        if 'COLAB_RELEASE_TAG' in os.environ or 'COLAB_GPU' in os.environ:
+            return "colab"
+
+    # --- Check for VSCode ---
+    if 'VSCODE_PID' in os.environ:
+        return "vscode"
+
+    # --- Check for Paperspace ---
+    if 'PAPERSPACE_NOTEBOOK_ID' in os.environ:
+        return "paperspace"
+
+    # --- Fallback ---
+    return "unknown"
+
+
+# def config_paths_keys(env_path=None, api_env_path=None):
+#     """
+#     Reads environment variables and sets paths based on runtime environment.
+
+#     Parameters:
+#         env_path (str or Path, optional): Path to environment file to load. If None, selects automatically.
+#         api_env_path (str or Path, optional): Path to API key env file. If None, searches default locations.
+
+#     Uses the following defaults if env_path is None:
+#         - Colab:         ~/Lessons/Course_Tools/google_colab.env
+#         - CoCalc:        ~/Lessons/Course_Tools/cocalc.env
+#         - CoCalc Server: ~/Lessons/Course_Tools/cocalc_compute_server.env
+#         - Default:       ~/Lessons/Course_Tools/local.env
+
+#     Also loads API keys from api_keys.env if not already set.
+
+#     Returns:
+#         dict: {'MODELS_PATH', 'DATA_PATH', 'CACHE_PATH'}
+#     """
+#     from introdl.utils import detect_jupyter_environment  # Assumes available
+
+#     env_names = {"colab": "Official Google Colab",
+#                  "cocalc": "CoCalc Home Server",
+#                  "cocalc_compute_server": "CoCalc Compute Server",
+#                  "vscode": "VSCode Jupyter",
+#                  "paperspace": "Paperspace Notebook",
+#                  "unknown": "Unknown Environment"}
+
+#     environment = detect_jupyter_environment()
+#     print(f"✅ Detected environment: {env_names[environment]}\n")
+
+#     # -- Path configuration --
+#     if environment == "colab":
+#         base_path = Path("/content/temp_workspace")
+#         data_path = base_path / "data"
+#         models_path = base_path / "models"
+#         cache_path = base_path / "downloads"
+
+#         for path in [data_path, models_path, cache_path]:
+#             path.mkdir(parents=True, exist_ok=True)
+
+#         os.environ["DATA_PATH"] = str(data_path)
+#         os.environ["MODELS_PATH"] = str(models_path)
+#         os.environ["CACHE_PATH"] = str(cache_path)
+#         os.environ["TORCH_HOME"] = str(cache_path)
+#         os.environ["HF_HOME"] = str(cache_path)
+#         os.environ["HF_DATASETS_CACHE"] = str(data_path)
+#         os.environ["TQDM_NOTEBOOK"] = "true"
+
+#     else:
+#         # Determine which env file to use
+#         if env_path is not None:
+#             env_file = Path(env_path).expanduser()
+#         else:
+#             env_map = {
+#                 "cocalc_compute_server": "~/Lessons/Course_Tools/cocalc_compute_server.env",
+#                 "cocalc": "~/Lessons/Course_Tools/cocalc.env",
+#                 "colab": "~/Lessons/Course_Tools/google_colab.env",
+#             }
+#             env_file = Path(env_map.get(environment, "~/Lessons/Course_Tools/local.env")).expanduser()
+
+#         if env_file.exists():
+#             load_dotenv(env_file, override=False)
+#             print(f"Loading workspace paths from: {env_file}")
+#         else:
+#             print(f"⚠️ .env file not found: {env_file}")
+
+#         data_path = Path(os.getenv("DATA_PATH", "~/data")).expanduser()
+#         models_path = Path(os.getenv("MODELS_PATH", "~/models")).expanduser()
+#         cache_path = Path(os.getenv("CACHE_PATH", "~/cache")).expanduser()
+
+#         for path in [data_path, models_path, cache_path]:
+#             path.mkdir(parents=True, exist_ok=True)
+
+#         os.environ["TORCH_HOME"] = str(cache_path)
+#         os.environ["HF_HOME"] = str(cache_path)
+#         os.environ["HF_DATASETS_CACHE"] = str(data_path)
+
+#     print(f"DATA_PATH={data_path}")
+#     print(f"MODELS_PATH={models_path}")
+#     print(f"CACHE_PATH={cache_path}")
+#     print(f"✅ Workspace paths configured for {env_names[environment]}\n")
+
+#     # -- API Keys loading --
+#     api_keys_file = None
+#     if api_env_path is not None:
+#         api_keys_file = Path(api_env_path).expanduser()
+#     else:
+#         default_api_paths = [
+#             Path.home() / "api_keys.env",
+#             Path("/content/drive/MyDrive/Colab Notebooks/api_keys.env") if environment == "colab" else None,
+#             Path("~/Lessons/Course_Tools/api_keys.env").expanduser()
+#         ]
+#         for path in default_api_paths:
+#             if path and path.exists():
+#                 api_keys_file = path
+#                 break
+
+#     if api_keys_file and api_keys_file.exists():
+#         load_dotenv(api_keys_file, override=False)
+#         print(f"✅ Loaded API keys from: {api_keys_file}\n")
+#     else:
+#         print("⚠️ No api_keys.env file found in expected locations.\n")
+
+
+#     # -- List loaded API keys (excluding 'abcdefg') --
+#     found_keys = [
+#         key for key in os.environ
+#         if key.endswith("_API_KEY") and os.environ[key] != "abcdefg"
+#     ]
+#     if found_keys:
+#         print("🔐 API keys loaded (excluding 'abcdefg'):")
+#         for key in sorted(found_keys):
+#             print(f"  - {key}")
+#         print("")
+#     else:
+#         print("⚠️ No valid *_API_KEY environment variables found (excluding 'abcdefg').")
+
+#     # -- Hugging Face login --
+#     hf_token = os.getenv("HF_TOKEN")
+#     if hf_token:
+#         try:
+#             import logging
+#             logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
+#             from huggingface_hub import login
+#             login(token=hf_token)
+#             print("✅ Logged into Hugging Face Hub.")
+#         except Exception as e:
+#             print(f"[ERROR] Hugging Face login failed: {e}")
+#     else:
+#         print("⚠️ HF_TOKEN not set. Set it in api_keys.env or the environment.")
+
+#     return {
+#         'MODELS_PATH': models_path,
+#         'DATA_PATH': data_path,
+#         'CACHE_PATH': cache_path
+#     }
+
+def config_paths_keys(env_path=None, api_env_path=None):
+    """
+    Configures workspace paths and loads API keys based on the runtime environment.
 
     Returns:
-        dict: A dictionary with keys 'MODELS_PATH' and 'DATA_PATH'.
+        dict: {'MODELS_PATH', 'DATA_PATH', 'CACHE_PATH'}
     """
-    # Determine the environment
-    ## this doesn't work in GCP instance with PyTorch image instead
+    import os
+    from pathlib import Path
+    from dotenv import load_dotenv
+    from introdl.utils import detect_jupyter_environment  # adjust if needed
+
+    env_names = {
+        "colab": "Official Google Colab",
+        "lightning": "Lightning AI Studio",
+        "cocalc": "CoCalc Home Server",
+        "cocalc_compute_server": "CoCalc Compute Server",
+        "vscode": "VSCode Jupyter",
+        "paperspace": "Paperspace Notebook",
+        "unknown": "Unknown Environment"
+    }
+
     environment = detect_jupyter_environment()
-    if environment == "cocalc":
-        env_file = Path("~/Lessons/Course_Tools/cocalc.env").expanduser()
-    elif environment == "colab":
-        env_file = Path("~/Lessons/Course_Tools/colab.env").expanduser()
-    else:
-        env_file = Path(env_path).expanduser()
+    print(f"✅ Detected environment: {env_names.get(environment, 'Unknown')}\n")
 
-    # Load the environment variables from the determined .env file
-    load_dotenv(env_file, override=False)
+    # -- Path setup --
+    if environment in {"colab", "lightning"}:
+        # Treat Lightning like Colab: Create local temp_workspace
+        base_path = Path.home() / "temp_workspace"
+        data_path = base_path / "data"
+        models_path = base_path / "models"
+        cache_path = base_path / "downloads"
 
-    # Load API keys if not already set
-    if not os.getenv('HF_TOKEN') or not os.getenv('OPENAI_API_KEY'):
-        load_dotenv(api_keys_env, override=False)
-
-    # Retrieve and expand paths
-    models_path = Path(os.getenv('MODELS_PATH', "")).expanduser()
-    data_path = Path(os.getenv('DATA_PATH', "")).expanduser()
-    torch_home = Path(os.getenv('TORCH_HOME', "")).expanduser()
-    hf_home = Path(os.getenv('HF_HOME', "")).expanduser()
-
-    # Set environment variables to expanded paths
-    os.environ['MODELS_PATH'] = str(models_path)
-    os.environ['DATA_PATH'] = str(data_path)
-    os.environ['TORCH_HOME'] = str(torch_home)
-    os.environ['HF_HOME'] = str(hf_home)
-
-    # Create directories if they don't exist
-    for path in [models_path, data_path, torch_home, hf_home]:
-        if not path.exists():
+        for path in [data_path, models_path, cache_path]:
             path.mkdir(parents=True, exist_ok=True)
 
-    # Ensure paths are set
-    print(f"MODELS_PATH={models_path}")
+        os.environ["DATA_PATH"] = str(data_path)
+        os.environ["MODELS_PATH"] = str(models_path)
+        os.environ["CACHE_PATH"] = str(cache_path)
+        os.environ["TORCH_HOME"] = str(cache_path)
+        os.environ["HF_HOME"] = str(cache_path)
+        os.environ["HF_DATASETS_CACHE"] = str(data_path)
+        os.environ["TQDM_NOTEBOOK"] = "true"
+
+    else:
+        # Use environment file (dotenv) if not Colab/Lightning
+        if env_path:
+            env_file = Path(env_path).expanduser()
+        else:
+            env_map = {
+                "cocalc_compute_server": "~/Lessons/Course_Tools/cocalc_compute_server.env",
+                "cocalc": "~/Lessons/Course_Tools/cocalc.env",
+                "colab": "~/Lessons/Course_Tools/google_colab.env",
+                "lightning": "~/Lessons/Course_Tools/google_colab.env"  # treat Lightning like Colab
+            }
+            env_file = Path(env_map.get(environment, "~/Lessons/Course_Tools/local.env")).expanduser()
+
+        if env_file.exists():
+            load_dotenv(env_file, override=False)
+            print(f"Loaded workspace paths from: {env_file}")
+        else:
+            print(f"⚠️ .env file not found: {env_file}")
+
+        data_path = Path(os.getenv("DATA_PATH", "~/data")).expanduser()
+        models_path = Path(os.getenv("MODELS_PATH", "~/models")).expanduser()
+        cache_path = Path(os.getenv("CACHE_PATH", "~/cache")).expanduser()
+
+        for path in [data_path, models_path, cache_path]:
+            path.mkdir(parents=True, exist_ok=True)
+
+        os.environ["TORCH_HOME"] = str(cache_path)
+        os.environ["HF_HOME"] = str(cache_path)
+        os.environ["HF_DATASETS_CACHE"] = str(data_path)
+
     print(f"DATA_PATH={data_path}")
-    print(f"TORCH_HOME={torch_home}")
-    print(f"HF_HOME={hf_home}")
+    print(f"MODELS_PATH={models_path}")
+    print(f"CACHE_PATH={cache_path}")
+    print(f"✅ Workspace paths configured for {env_names.get(environment, 'Unknown')}\n")
+
+    # -- Load API keys --
+    api_keys_file = None
+    if api_env_path:
+        api_keys_file = Path(api_env_path).expanduser()
+    else:
+        default_api_paths = [
+            Path.home() / "api_keys.env",
+            Path("/content/drive/MyDrive/Colab Notebooks/api_keys.env") if environment == "colab" else None,
+            Path("~/Lessons/Course_Tools/api_keys.env").expanduser()
+        ]
+        for path in default_api_paths:
+            if path and path.exists():
+                api_keys_file = path
+                break
+
+    if api_keys_file and api_keys_file.exists():
+        load_dotenv(api_keys_file, override=False)
+        print(f"✅ Loaded API keys from: {api_keys_file}\n")
+    else:
+        print("⚠️ No api_keys.env file found.\n")
+
+    # -- List loaded API keys --
+    found_keys = [
+        key for key in os.environ
+        if key.endswith("_API_KEY") and os.environ[key] != "abcdefg"
+    ]
+    if found_keys:
+        print("\n🔐 API keys loaded (excluding 'abcdefg'):")
+        for key in sorted(found_keys):
+            print(f"  - {key}")
+        print("")
+    else:
+        print("\n⚠️ No valid *_API_KEY environment variables found (excluding 'abcdefg').")
+
+    # -- Hugging Face login if token available --
+    hf_token = os.getenv("HF_TOKEN")
+    if hf_token:
+        try:
+            import logging
+            logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
+            from huggingface_hub import login
+            login(token=hf_token)
+            print("✅ Logged into Hugging Face Hub.")
+        except Exception as e:
+            print(f"[ERROR] Hugging Face login failed: {e}")
+    else:
+        print("⚠️ HF_TOKEN not set. Set it in api_keys.env or the environment.")
 
     return {
         'MODELS_PATH': models_path,
-        'DATA_PATH': data_path
+        'DATA_PATH': data_path,
+        'CACHE_PATH': cache_path
     }
- 
+
+
 def get_device():
     """
     Returns the appropriate device ('cuda', 'mps', or 'cpu') depending on availability.
@@ -119,6 +542,17 @@ def get_device():
         return torch.device('mps')
     else:
         return torch.device('cpu')
+    
+def cleanup_torch(*objects):
+    """Delete objects, clear CUDA cache, and run garbage collection."""
+    for obj in objects:
+        try:
+            del obj
+        except:
+            pass
+    torch.cuda.empty_cache()
+    gc.collect()
+
 
 def hf_download(checkpoint_file, repo_id, token=None):
     """
@@ -399,31 +833,273 @@ def create_CIFAR10_loaders(transform_train=None, transform_test=None, transform_
     else:
         return train_loader, test_loader
 
-def wrap_print_text(print):
+# def wrap_print_text(print):
+#     """
+#     Wraps the given print function to format text with a specified width.
+#     This function takes a print function as an argument and returns a new function
+#     that formats the text to a specified width before printing. The text is wrapped
+#     to 80 characters per line, and long words are broken to fit within the width.
+#     Args:
+#         print (function): The original print function to be wrapped.
+#     Returns:
+#         function: A new function that formats text to 80 characters per line and
+#                   then prints it using the original print function.
+#     Example:
+#         wrapped_print = wrap_print_text(print)
+#         wrapped_print("This is a very long text that will be wrapped to fit within 80 characters per line.")
+#     Adapted from: https://stackoverflow.com/questions/27621655/how-to-overload-print-function-to-expand-its-functionality/27621927"""
+
+#     def wrapped_func(text):
+#         if not isinstance(text, str):
+#             text = str(text)
+#         wrapper = TextWrapper(
+#             width=80,
+#             break_long_words=True,
+#             break_on_hyphens=False,
+#             replace_whitespace=False,
+#         )
+#         return print("\n".join(wrapper.fill(line) for line in text.split("\n")))
+
+#     return wrapped_func
+
+def wrap_print_text(original_print, width=80):
     """
     Wraps the given print function to format text with a specified width.
     This function takes a print function as an argument and returns a new function
     that formats the text to a specified width before printing. The text is wrapped
-    to 80 characters per line, and long words are broken to fit within the width.
-    Args:
-        print (function): The original print function to be wrapped.
-    Returns:
-        function: A new function that formats text to 80 characters per line and
-                  then prints it using the original print function.
-    Example:
-        wrapped_print = wrap_print_text(print)
-        wrapped_print("This is a very long text that will be wrapped to fit within 80 characters per line.")
-    Adapted from: https://stackoverflow.com/questions/27621655/how-to-overload-print-function-to-expand-its-functionality/27621927"""
+    to the specified number of characters per line, and long words are broken to fit.
+    """
 
-    def wrapped_func(text):
-        if not isinstance(text, str):
-            text = str(text)
+    def wrapped_func(*args, **kwargs):
+        text = " ".join(str(arg) for arg in args)
         wrapper = TextWrapper(
-            width=80,
+            width=width,
             break_long_words=True,
             break_on_hyphens=False,
             replace_whitespace=False,
         )
-        return print("\n".join(wrapper.fill(line) for line in text.split("\n")))
+        wrapped_text = "\n".join(wrapper.fill(line) for line in text.split("\n"))
+        return original_print(wrapped_text, **kwargs)
 
     return wrapped_func
+
+def _guess_notebook_path():
+    """
+    Guess the current notebook path by looking for the most recently modified .ipynb file in the working dir.
+    """
+    cwd = Path.cwd()
+    candidates = sorted(cwd.glob("*.ipynb"), key=os.path.getmtime, reverse=True)
+    if not candidates:
+        raise RuntimeError("No .ipynb files found in the current directory.")
+    print(f"[INFO] Using notebook: {candidates[0].name}")
+    return candidates[0]
+
+def _clean_invalid_outputs(notebook_path):
+    with open(notebook_path, "r", encoding="utf-8") as f:
+        nb = nbformat.read(f, as_version=4)
+
+    for i, cell in enumerate(nb.cells):
+        if cell.cell_type != "code":
+            continue
+
+        new_outputs = []
+        for j, output in enumerate(cell.get("outputs", [])):
+            fake_nb = {
+                "cells": [{
+                    "cell_type": "code",
+                    "metadata": {},
+                    "execution_count": 1,
+                    "outputs": [output],
+                    "source": "",
+                    "id": f"cell-{i}-{j}"
+                }],
+                "metadata": {},
+                "nbformat": 4,
+                "nbformat_minor": 5
+            }
+            try:
+                normalize(fake_nb)
+                validate(fake_nb, relax_add_props=True)
+                new_outputs.append(output)
+            except NotebookValidationError:
+                print(f"[WARN] Removed invalid output from cell {i}, output {j}")
+
+        cell["outputs"] = new_outputs
+
+    normalize(nb)
+
+    with open(notebook_path, "w", encoding="utf-8") as f:
+        nbformat.write(nb, f)
+
+# def convert_nb_to_html(output_filename="converted.html", notebook_path=None, template="lab"):
+#     """
+#     Convert a notebook to HTML using the specified nbconvert template.
+
+#     Parameters:
+#         output_filename (str or Path): Name or path of the resulting HTML file.
+#         notebook_path (str or Path): Path to the notebook to convert. If None, uses most recent .ipynb in cwd.
+#         template (str): nbconvert template to use ("lab" or "classic"). Defaults to "lab".
+
+#     Notes:
+#         - Cleans up Colab-specific metadata (e.g., 'errorDetails') and broken widget metadata.
+#         - Automatically falls back to 'classic' template if 'lab' fails.
+#         - Final HTML is written to output_filename (supports Google Drive paths).
+#     """
+
+#     # If no notebook path is given, use most recent .ipynb in current directory
+#     if notebook_path is None:
+#         candidates = list(Path.cwd().glob("*.ipynb"))
+#         if not candidates:
+#             raise FileNotFoundError("No .ipynb files found in current directory.")
+#         notebook_path = max(candidates, key=lambda f: f.stat().st_mtime)
+
+#     output_filename = Path(output_filename)
+#     if not output_filename.name.endswith(".html"):
+#         output_filename = output_filename.with_suffix(".html")
+
+#     notebook_path = Path(notebook_path).resolve()
+#     output_dir = output_filename.parent.resolve()
+#     output_name = output_filename.stem
+
+#     with tempfile.TemporaryDirectory() as tmpdir:
+#         tmp_path = Path(tmpdir) / notebook_path.name
+#         shutil.copy2(notebook_path, tmp_path)
+#         print(f"[INFO] Temporary copy created: {tmp_path}")
+
+#         # 🧼 Clean Colab errorDetails and invalid widget metadata
+#         try:
+#             nb = nbformat.read(tmp_path, as_version=4)
+#             for cell in nb.cells:
+#                 if "outputs" in cell:
+#                     for output in cell["outputs"]:
+#                         if isinstance(output, dict):
+#                             if "errorDetails" in output:
+#                                 del output["errorDetails"]
+#                             # Remove broken widget views that trigger KeyError
+#                             if "data" in output and "application/vnd.jupyter.widget-view+json" in output["data"]:
+#                                 output["data"].pop("application/vnd.jupyter.widget-view+json", None)
+#             if "metadata" in nb and "widgets" in nb["metadata"]:
+#                 del nb["metadata"]["widgets"]
+#             nbformat.write(nb, tmp_path)
+#         except Exception as e:
+#             print(f"[WARNING] Failed to clean notebook metadata: {e}")
+
+#         def run_nbconvert(tmpl):
+#             return subprocess.run(
+#                 [
+#                     "jupyter", "nbconvert",
+#                     "--to", "html",
+#                     "--template", tmpl,
+#                     "--output", output_name,
+#                     "--output-dir", str(output_dir),
+#                     str(tmp_path)
+#                 ],
+#                 stdout=subprocess.PIPE,
+#                 stderr=subprocess.PIPE,
+#                 text=True
+#             )
+
+#         # 🧪 Try nbconvert with the specified template, fallback to classic if it fails
+#         result = run_nbconvert(template)
+#         if result.returncode != 0:
+#             print(f"[WARNING] nbconvert with template '{template}' failed. Retrying with 'classic'...")
+#             result = run_nbconvert("classic")
+
+#         if result.returncode == 0:
+#             print(f"[SUCCESS] HTML export complete: {output_dir / output_filename.name}")
+#         else:
+#             print("[ERROR] nbconvert failed:\n", result.stderr)
+
+def convert_nb_to_html(output_filename="converted.html", notebook_path=None, template="lab"):
+    """
+    Convert a notebook to HTML using the specified nbconvert template.
+
+    Parameters:
+        output_filename (str or Path): Name or path of the resulting HTML file.
+        notebook_path (str or Path): Path to the notebook to convert. If None, uses most recent .ipynb in cwd.
+        template (str): nbconvert template to use ("lab" or "classic"). Defaults to "lab".
+
+    Notes:
+        - Cleans up Colab/CoCalc-specific metadata (e.g., 'id', 'errorDetails', 'request').
+        - Filters out invalid outputs missing 'output_type'.
+        - Automatically falls back to 'classic' template if 'lab' fails.
+        - Final HTML is written to output_filename (supports Google Drive paths).
+    """
+
+    # If no notebook path is given, use most recent .ipynb in current directory
+    if notebook_path is None:
+        candidates = list(Path.cwd().glob("*.ipynb"))
+        if not candidates:
+            raise FileNotFoundError("No .ipynb files found in current directory.")
+        notebook_path = max(candidates, key=lambda f: f.stat().st_mtime)
+
+    output_filename = Path(output_filename)
+    if not output_filename.name.endswith(".html"):
+        output_filename = output_filename.with_suffix(".html")
+
+    notebook_path = Path(notebook_path).resolve()
+    output_dir = output_filename.parent.resolve()
+    output_name = output_filename.stem
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_path = Path(tmpdir) / notebook_path.name
+        shutil.copy2(notebook_path, tmp_path)
+        print(f"[INFO] Temporary copy created: {tmp_path}")
+
+        # 🧼 Clean metadata that breaks nbconvert
+        try:
+            nb = nbformat.read(tmp_path, as_version=4)
+
+            for cell in nb.cells:
+                # Remove invalid top-level fields
+                cell.pop("id", None)
+
+                # Clean outputs
+                if "outputs" in cell:
+                    cleaned_outputs = []
+                    for output in cell["outputs"]:
+                        if not isinstance(output, dict):
+                            continue
+                        if "output_type" not in output:
+                            # Not a valid output object — skip it
+                            continue
+                        output.pop("errorDetails", None)
+                        output.pop("request", None)
+                        if "data" in output and "application/vnd.jupyter.widget-view+json" in output["data"]:
+                            output["data"].pop("application/vnd.jupyter.widget-view+json", None)
+                        cleaned_outputs.append(output)
+                    cell["outputs"] = cleaned_outputs
+
+            # Remove broken widget metadata
+            if "metadata" in nb and "widgets" in nb["metadata"]:
+                del nb["metadata"]["widgets"]
+
+            nbformat.write(nb, tmp_path)
+        except Exception as e:
+            print(f"[WARNING] Failed to clean notebook metadata: {e}")
+
+        def run_nbconvert(tmpl):
+            return subprocess.run(
+                [
+                    "jupyter", "nbconvert",
+                    "--to", "html",
+                    "--template", tmpl,
+                    "--output", output_name,
+                    "--output-dir", str(output_dir),
+                    str(tmp_path)
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+
+        # 🧪 Try nbconvert with the specified template, fallback to classic if it fails
+        result = run_nbconvert(template)
+        if result.returncode != 0:
+            print(f"[WARNING] nbconvert with template '{template}' failed. Retrying with 'classic'...")
+            result = run_nbconvert("classic")
+
+        if result.returncode == 0:
+            print(f"[SUCCESS] HTML export complete: {output_dir / output_filename.name}")
+        else:
+            print("[ERROR] nbconvert failed:\n", result.stderr)

@@ -94,9 +94,23 @@ def run_epoch(model, optimizer, data_loader, loss_func, device, results, score_f
             optimizer.step()  # Update the weights
             optimizer.zero_grad()  # Zero the gradients
 
-            # Step the learning rate scheduler per batch if specified
+            # SAFETY CHECK: Only step the scheduler if we haven't exceeded total steps
             if lr_schedule is not None and scheduler_step_per_batch:
-                lr_schedule.step()
+                # If it's OneCycleLR or any that has a .total_steps attribute
+                # we can do a check. If we exceed total_steps, skip stepping.
+                can_step = True
+                if hasattr(lr_schedule, 'total_steps'):  # e.g., OneCycleLR
+                    if lr_schedule.last_epoch >= lr_schedule.total_steps:
+                        can_step = False
+                
+                if can_step:
+                    lr_schedule.step()
+                else:
+                    print(
+                        f"Warning: skipping scheduler.step() because "
+                        f"lr_schedule.last_epoch={lr_schedule.last_epoch} >= "
+                        f"lr_schedule.total_steps={lr_schedule.total_steps}."
+                    )
         
         # Store loss
         running_loss.append(loss.item())

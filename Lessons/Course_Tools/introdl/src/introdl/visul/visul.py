@@ -177,11 +177,14 @@ def create_image_grid(dataset, nrows, ncols, img_size=(64, 64), padding=2, label
             text_y = y + label_height // 2
             draw.text((text_x, text_y), label_text, fill=text_color, font=font, anchor="mm")
 
+    '''
     # Display the final grid image
     if in_notebook():
         display(canvas)  # Display inline in Jupyter notebook
     else:
         canvas.show()  # Open in a separate window if not in a notebook
+    '''
+    display(canvas) # Display inline in Jupyter notebook
 
 def plot_transformed_images(dataset, num_images=5, num_transformed=5, img_size=(64, 64), padding=2, dark_mode=False, cmap=None, mean=None, std=None):
     """
@@ -230,11 +233,14 @@ def plot_transformed_images(dataset, num_images=5, num_transformed=5, img_size=(
             x = j * (img_width + padding)
             canvas.paste(transformed_image, (x, y))
 
+    '''
     # Display the final grid image
     if in_notebook():
         display(canvas)  # Display inline in Jupyter notebook
     else:
         canvas.show()  # Open in a separate window if not in a notebook
+    '''
+    display(canvas) # Display inline in Jupyter notebook
 
 
 def evaluate_classifier(model, dataset, device, display_confusion=True, img_size=(5, 5), 
@@ -317,19 +323,19 @@ def evaluate_classifier(model, dataset, device, display_confusion=True, img_size
 
     return confusion_mat, class_report, misclassified_dataset
 
-def visualize2DSoftmax(X, y, model, title=None):
+def visualize2DSoftmax(X, y, model, title=None, numpts=20):
     x_min = np.min(X[:,0])-0.5
     x_max = np.max(X[:,0])+0.5
     y_min = np.min(X[:,1])-0.5
     y_max = np.max(X[:,1])+0.5
-    xv, yv = np.meshgrid(np.linspace(x_min, x_max, num=20), np.linspace(y_min, y_max, num=20), indexing='ij')
+    xv, yv = np.meshgrid(np.linspace(x_min, x_max, num=numpts), np.linspace(y_min, y_max, num=numpts), indexing='ij')
     xy_v = np.hstack((xv.reshape(-1,1), yv.reshape(-1,1)))
     with torch.no_grad():
         logits = model(torch.tensor(xy_v, dtype=torch.float32))
         y_hat = F.softmax(logits, dim=1).numpy()
 
     plt.figure(figsize=(5,5))
-    cs = plt.contourf(xv, yv, y_hat[:,0].reshape(20,20), levels=np.linspace(0,1,num=20), cmap=plt.cm.RdYlBu)
+    cs = plt.contourf(xv, yv, y_hat[:,0].reshape(numpts,numpts), levels=np.linspace(0,1,num=20), cmap=plt.cm.RdYlBu)
     ax = plt.gca()
     sns.scatterplot(x=X[:,0], y=X[:,1], hue=y, style=y, ax=ax)
     if title is not None:

@@ -10,18 +10,42 @@ authors = [
     { name = "Your Name", email = "you@example.com" }
 ]
 dependencies = [
+    "accelerate",
+    "bert_score",
+    "bertviz",
+    "bitsandbytes>=0.45.3",
+    "datasets",
+    "dotenv",
+    "evaluate",
+    "google-genai",
     "IPython",
     "ipywidgets",
     "ipycanvas",
+    "kagglehub",
     "matplotlib",
+    "nbformat",
+    "nbconvert",
     "numpy",
+    "openai>=1.65.5",
     "pandas",
+    "protobuf",
+    "pyperclip",
+    "rapidfuzz",
+    "rouge_score",
+    "scikit-learn",
     "scipy",
     "seaborn",
+    "segmentation_models_pytorch",
+    "seqeval",
+    "spacy",
+    "timm",
     "torch",
     "torchinfo",
+    "torchmetrics",
     "torchvision",
-    "tqdm"
+    "tqdm",
+    "transformers>=4.49.0",
+    "ultralytics"
 ]
 
 [tool.setuptools]
